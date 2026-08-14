@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Network, RefreshCw, Loader2, Sparkles, AlertTriangle,
-  Users, Trophy, GitBranch, ShieldAlert, X, FileText,
+  Users, Trophy, GitBranch, ShieldAlert, X, FileText, Info,
 } from 'lucide-react'
 import { api } from '../api/client.js'
 import ForceGraph, { TYPE_COLORS, REL_COLORS } from './ForceGraph.jsx'
 
 const TABS = [
-  { id: 'graph', label: '图谱', icon: GitBranch },
-  { id: 'rank', label: '影响力', icon: Trophy },
-  { id: 'community', label: '组织圈层', icon: Users },
-  { id: 'risk', label: '风险', icon: ShieldAlert },
+  { id: 'graph', label: '关系图谱', icon: GitBranch },
+  { id: 'rank', label: '影响力排名', icon: Trophy },
+  { id: 'community', label: '协作圈层', icon: Users },
+  { id: 'risk', label: '组织风险', icon: ShieldAlert },
   { id: 'promo', label: '晋升画像', icon: Sparkles },
 ]
 
@@ -253,9 +253,19 @@ export default function InfluenceGraphPanel({ members }) {
         })}
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 flex flex-col">
         {tab === 'graph' && (
-          <div className="h-full grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+          <div className="h-full min-h-0 flex flex-col gap-3">
+            <TabGuide
+              title="怎么看这张图"
+              points={[
+                '圆点是人、项目、部门等对象；连线是已经记录下来的关系（汇报、协作、信任、冲突等）。',
+                '人越大，说明在协作网里越关键——连的人多，或处在别人必须经过的路口。线越粗，这段关系越强。',
+                '右侧可勾选要看的对象和关系类型，避免一次全画出来看不清。点某个圆，右侧会列出他直接连着谁。',
+                '这是关系结构图，不是行政组织架构，也不是任务看板。职级高低不会单独把节点画大。',
+              ]}
+            />
+            <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
             <ForceGraph
               nodes={visibleNodes}
               edges={visibleEdges}
@@ -297,19 +307,66 @@ export default function InfluenceGraphPanel({ members }) {
                 <p className="text-xs text-slate-400">点击节点查看关系与晋升画像。节点大小 = 影响力，边粗 = 关系强度。</p>
               )}
             </aside>
+            </div>
           </div>
         )}
 
-        {tab === 'rank' && <RankingView ranking={ranking} onPick={loadPromo} />}
-        {tab === 'community' && <CommunityView data={community} />}
-        {tab === 'risk' && <RiskView data={risks} />}
+        {tab === 'rank' && (
+          <div className="h-full min-h-0 flex flex-col gap-3 overflow-y-auto">
+            <TabGuide
+              title="怎么看影响力排名"
+              points={[
+                '这里排的是「在协作网络里有多关键」，不是职级、也不是绩效。分数来自关系结构，日报字数不会直接加分。',
+                '影响力是 0–100 的综合分：关系广、处在关键路口、或被关键的人连着，都会抬高。点一行可打开该人的晋升画像。',
+                '连接数：直接认识/协作的人数。关系广度：连得是否散。桥梁度：有多少人必须经过他才能连上别人。被连接权重：被高影响力的人连着会加分。',
+              ]}
+            />
+            <RankingView ranking={ranking} onPick={loadPromo} />
+          </div>
+        )}
+        {tab === 'community' && (
+          <div className="h-full min-h-0 flex flex-col gap-3 overflow-y-auto">
+            <TabGuide
+              title="怎么看协作圈层"
+              points={[
+                '左边是按日常协作自动分出来的圈子：经常一起干活的人会聚在一起。这不是部门编制，一个人实际在跟谁混，看这里更准。',
+                '右边是跨圈关键人：两边圈子不怎么直接来往，但都连着这个人。分越高，越像桥梁；他若离开，两边可能断联。',
+                '约束系数低、桥梁分高，说明他不困在一个小圈子里。桥接列出的是「目前互不相连、但都通过他」的两个人。',
+              ]}
+            />
+            <CommunityView data={community} />
+          </div>
+        )}
+        {tab === 'risk' && (
+          <div className="h-full min-h-0 flex flex-col gap-3 overflow-y-auto">
+            <TabGuide
+              title="怎么看组织风险"
+              points={[
+                '这里看的是关系结构里的隐患，不是项目进度或健康度。项目中心管项目事实，这里只回答「组织上会不会断」。',
+                '常见三类：重要项目只有一个人扛（单点）、高影响力的人几乎没人能接（无人备份）、冲突关系已经影响到协作。',
+                '分数越高越需要关注。红色是高风险，黄色是中等。没有条目表示按当前图谱还扫不出这类结构问题，不代表业务一定安全。',
+              ]}
+            />
+            <RiskView data={risks} />
+          </div>
+        )}
         {tab === 'promo' && (
-          <PromoView
-            members={(graph.nodes || []).filter((n) => n.type === 'Person')}
-            promoId={promoId}
-            profile={profile}
-            onPick={loadPromo}
-          />
+          <div className="h-full min-h-0 flex flex-col gap-3 overflow-y-auto">
+            <TabGuide
+              title="怎么看晋升画像"
+              points={[
+                '左边选一个人，右边是他适不适合往上走的结构画像。这是推演参考，不会自动改职级或绩效。',
+                '领导力分是加权合成：能力、近 30 天日报投入、被信任程度、组织影响力、资源控制，再减去冲突风险。影响力权重最大。',
+                '冲突风险高会明显拉低总分。条形是各分项 0–100，用来看短板在哪，不要把它当成 HR 正式评价。',
+              ]}
+            />
+            <PromoView
+              members={(graph.nodes || []).filter((n) => n.type === 'Person')}
+              promoId={promoId}
+              profile={profile}
+              onPick={loadPromo}
+            />
+          </div>
         )}
       </div>
 
@@ -368,6 +425,24 @@ export default function InfluenceGraphPanel({ members }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function TabGuide({ title, points }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex items-start gap-2">
+        <Info size={14} className="text-brand-600 mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-slate-800">{title}</div>
+          <ul className="mt-1.5 space-y-1 text-xs text-slate-600 leading-relaxed">
+            {points.map((p) => (
+              <li key={p}>· {p}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   )
 }
@@ -477,9 +552,9 @@ function RankingView({ ranking, onPick }) {
             <th className="text-left font-medium px-4 py-2">人员</th>
             <th className="text-right font-medium px-4 py-2">影响力</th>
             <th className="text-right font-medium px-4 py-2">连接数</th>
-            <th className="text-right font-medium px-4 py-2">Degree</th>
-            <th className="text-right font-medium px-4 py-2">Betweenness</th>
-            <th className="text-right font-medium px-4 py-2">PageRank</th>
+            <th className="text-right font-medium px-4 py-2">关系广度</th>
+            <th className="text-right font-medium px-4 py-2">桥梁度</th>
+            <th className="text-right font-medium px-4 py-2">被连接权重</th>
           </tr>
         </thead>
         <tbody>
@@ -513,7 +588,7 @@ function CommunityView({ data }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="space-y-3">
-        <h3 className="text-sm font-bold text-slate-800">Louvain 社群</h3>
+        <h3 className="text-sm font-bold text-slate-800">协作圈子</h3>
         {communities.map((c) => (
           <div key={c.id} className="bg-white rounded-2xl border border-slate-100 p-4">
             <div className="flex items-center justify-between mb-2">
@@ -531,7 +606,7 @@ function CommunityView({ data }) {
         ))}
       </div>
       <div className="space-y-3">
-        <h3 className="text-sm font-bold text-slate-800">结构洞 · 关键连接人</h3>
+        <h3 className="text-sm font-bold text-slate-800">跨圈关键人</h3>
         {holes.map((h) => (
           <div key={h.id} className="bg-white rounded-2xl border border-slate-100 p-4">
             <div className="flex items-center justify-between">
@@ -539,7 +614,7 @@ function CommunityView({ data }) {
               <span className="text-sm font-bold text-brand-600">{h.hole_score}</span>
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              约束系数 {h.constraint} · 度数 {h.degree}
+              桥梁分越高越关键 · 圈子束缚 {h.constraint} · 直接连接 {h.degree} 人
             </div>
             {h.bridges?.length > 0 && (
               <div className="text-[11px] text-slate-600 mt-2">
@@ -556,6 +631,13 @@ function CommunityView({ data }) {
 function RiskView({ data }) {
   const items = data?.items || []
   if (!items.length) return <Empty hint="未发现显著组织风险。" />
+  const typeLabel = {
+    single_point: '单点依赖',
+    conflict: '协作冲突',
+    key_person: '无人备份',
+    resource_lock: '资源独占',
+    empty: '数据不足',
+  }
   return (
     <div className="space-y-3">
       {items.map((r) => (
@@ -568,7 +650,7 @@ function RiskView({ data }) {
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-slate-800 text-sm">{r.title}</span>
-              <span className="text-[10px] uppercase tracking-wide text-slate-400">{r.type}</span>
+              <span className="text-[10px] text-slate-400">{typeLabel[r.type] || r.type}</span>
               <span className="ml-auto text-sm font-bold text-slate-700">{r.score}</span>
             </div>
             <p className="text-xs text-slate-500 mt-1">{r.detail}</p>
@@ -608,7 +690,7 @@ function PromoView({ members, promoId, profile, onPick }) {
             </div>
             <div className="flex items-end gap-6">
               <div>
-                <div className="text-[11px] text-slate-400">Leadership Score</div>
+                <div className="text-[11px] text-slate-400">领导力分</div>
                 <div className="text-4xl font-bold text-brand-600">{profile.leadership_score}</div>
               </div>
             </div>

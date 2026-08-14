@@ -9,6 +9,19 @@ let _reanalyzePromise = null
 // AI Native 排名任务 Promise + 进度回调（支持页面切换后恢复）
 let _rankingPromise = null
 let _rankingProgressHandler = null
+let _situationPromise = null
+let _situationProgressHandler = null
+
+function errorMessage(err, fallback = '请求失败') {
+  const d = err?.detail
+  if (typeof d === 'string' && d) return d
+  if (Array.isArray(d)) {
+    const parts = d.map((x) => x?.msg || x?.message || '').filter(Boolean)
+    if (parts.length) return parts.join('；')
+  }
+  if (d && typeof d === 'object' && d.msg) return d.msg
+  return fallback
+}
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
@@ -17,7 +30,7 @@ async function request(path, options = {}) {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || '请求失败')
+    throw new Error(errorMessage(err, res.statusText || '请求失败'))
   }
   return res.json()
 }
@@ -249,6 +262,77 @@ export const api = {
   }),
   deletePromotion: (id) => request(`/promotion/simulations/${id}`, { method: 'DELETE' }),
 
+  // 项目中心
+  listProjects: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '' && v !== false) q.set(k, v)
+    })
+    const qs = q.toString()
+    return request(`/projects${qs ? `?${qs}` : ''}`)
+  },
+  createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  getProject: (id) => request(`/projects/${encodeURIComponent(id)}`),
+  updateProject: (id, data) => request(`/projects/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  deleteProject: (id) => request(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  addProjectStage: (id, data) => request(`/projects/${encodeURIComponent(id)}/stages`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  updateProjectStage: (id, stageId, data) => request(`/projects/${encodeURIComponent(id)}/stages/${encodeURIComponent(stageId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  completeProjectStage: (id, stageId, data = {}) => request(`/projects/${encodeURIComponent(id)}/stages/${encodeURIComponent(stageId)}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  addProjectMember: (id, data) => request(`/projects/${encodeURIComponent(id)}/members`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  deleteProjectMember: (id, memberId) => request(`/projects/${encodeURIComponent(id)}/members/${encodeURIComponent(memberId)}`, {
+    method: 'DELETE',
+  }),
+  addProjectMilestone: (id, data) => request(`/projects/${encodeURIComponent(id)}/milestones`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  updateProjectMilestone: (id, mid, data) => request(`/projects/${encodeURIComponent(id)}/milestones/${encodeURIComponent(mid)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  addProjectRisk: (id, data) => request(`/projects/${encodeURIComponent(id)}/risks`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  updateProjectRisk: (id, rid, data) => request(`/projects/${encodeURIComponent(id)}/risks/${encodeURIComponent(rid)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  addProjectActivity: (id, data) => request(`/projects/${encodeURIComponent(id)}/activities`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  addProjectObjective: (id, data) => request(`/projects/${encodeURIComponent(id)}/objectives`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  addProjectKr: (id, oid, data) => request(`/projects/${encodeURIComponent(id)}/objectives/${encodeURIComponent(oid)}/krs`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  addProjectRelation: (id, data) => request(`/projects/${encodeURIComponent(id)}/relations`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  deleteProjectRelation: (id, rid) => request(`/projects/${encodeURIComponent(id)}/relations/${encodeURIComponent(rid)}`, {
+    method: 'DELETE',
+  }),
+
   // 对话
   query: (message) => request('/chat/query', {
     method: 'POST',
@@ -259,4 +343,71 @@ export const api = {
     body: JSON.stringify({ scenario }),
   }),
   getChatHistory: (limit = 20) => request(`/chat/history?limit=${limit}`),
+
+  // 团队态势
+  getSituationToday: () => request('/team-situation/today'),
+  getSituationStatus: () => request('/team-situation/status'),
+  getSituationReports: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.date) q.set('date', params.date)
+    if (params.start_date) q.set('start_date', params.start_date)
+    if (params.end_date) q.set('end_date', params.end_date)
+    const qs = q.toString()
+    return request(`/team-situation/reports${qs ? `?${qs}` : ''}`)
+  },
+  getSituationMember: (id) => request(`/team-situation/members/${encodeURIComponent(id)}`),
+  getSituationProject: (id) => request(`/team-situation/projects/${encodeURIComponent(id)}`),
+  getSituationTrends: (range = '7d') => request(`/team-situation/trends?range=${range}`),
+  getSituationConfig: () => request('/team-situation/config'),
+  updateSituationConfig: (data) => request('/team-situation/config', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  addSituationContext: (data) => request('/team-situation/context', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  listSituationContext: (date) => request(`/team-situation/context${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  patchSituationRisk: (id, status) => request(`/team-situation/risks/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  }),
+  patchSituationQuestion: (id, status, answer = '') => request(`/team-situation/questions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, answer }),
+  }),
+  getSituationPromise: () => _situationPromise,
+  onSituationProgress: (handler) => {
+    _situationProgressHandler = handler
+    return () => {
+      if (_situationProgressHandler === handler) _situationProgressHandler = null
+    }
+  },
+  watchSituationAnalyze: () => {
+    if (_situationPromise) return _situationPromise
+    _situationPromise = (async () => {
+      for (;;) {
+        const st = await request('/team-situation/status')
+        if (typeof _situationProgressHandler === 'function') {
+          _situationProgressHandler(st)
+        }
+        if (st.status === 'success' || st.status === 'failed' || st.status === 'idle') {
+          return st
+        }
+        await new Promise((r) => setTimeout(r, 1200))
+      }
+    })().finally(() => { _situationPromise = null })
+    return _situationPromise
+  },
+  analyzeSituation: async (idempotencyKey) => {
+    const start = await request('/team-situation/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ idempotency_key: idempotencyKey }),
+    })
+    if (typeof _situationProgressHandler === 'function') {
+      _situationProgressHandler(start)
+    }
+    if (start.status !== 'running') return start
+    return api.watchSituationAnalyze()
+  },
 }

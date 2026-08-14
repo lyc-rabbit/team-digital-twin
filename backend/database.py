@@ -326,6 +326,271 @@ def init_db():
         c.execute("CREATE INDEX IF NOT EXISTS idx_nc_interv_nc ON newcomer_interventions(newcomer_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_analysis_type ON analysis_tasks(task_type, status)")
 
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS team_situation_report (
+                id                   TEXT PRIMARY KEY,
+                report_date          TEXT NOT NULL,
+                team_health_score    REAL,
+                team_status          TEXT,
+                project_score        REAL,
+                member_score         REAL,
+                task_score           REAL,
+                collaboration_score  REAL,
+                summary              TEXT,
+                llm_json             TEXT,
+                weights_json         TEXT,
+                snapshot_json        TEXT,
+                trigger              TEXT,
+                created_at           TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS member_situation (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id      TEXT NOT NULL,
+                member_id      TEXT NOT NULL,
+                workload_score REAL,
+                work_focus     TEXT,
+                focus_change   TEXT,
+                project_count  INTEGER,
+                role_change    TEXT,
+                risk_level     TEXT,
+                summary        TEXT,
+                confidence     REAL,
+                metrics_json   TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS project_situation (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id        TEXT NOT NULL,
+                project_id       TEXT NOT NULL,
+                project_name     TEXT,
+                progress         REAL,
+                progress_change  REAL,
+                schedule_status  TEXT,
+                risk_level       TEXT,
+                summary          TEXT,
+                confidence       REAL,
+                metrics_json     TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS situation_risk (
+                id           TEXT PRIMARY KEY,
+                report_id    TEXT NOT NULL,
+                object_type  TEXT,
+                object_id    TEXT,
+                risk_type    TEXT,
+                severity     TEXT,
+                title        TEXT,
+                description  TEXT,
+                evidence     TEXT,
+                confidence   REAL,
+                status       TEXT DEFAULT 'open',
+                created_at   TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS situation_change (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id     TEXT NOT NULL,
+                object_type   TEXT,
+                object_id     TEXT,
+                change_type   TEXT,
+                before_value  TEXT,
+                after_value   TEXT,
+                change_score  REAL,
+                description   TEXT,
+                confidence    REAL,
+                evidence      TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS team_context (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                context_date  TEXT NOT NULL,
+                context_type  TEXT,
+                content       TEXT,
+                source        TEXT DEFAULT 'manual',
+                creator_id    TEXT,
+                created_at    TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS situation_question (
+                id            TEXT PRIMARY KEY,
+                report_id     TEXT,
+                member_id     TEXT,
+                question      TEXT,
+                status        TEXT DEFAULT 'open',
+                answer        TEXT,
+                created_at    TEXT,
+                resolved_at   TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS team_situation_job (
+                id               TEXT PRIMARY KEY,
+                report_date      TEXT,
+                status           TEXT,
+                progress         INTEGER DEFAULT 0,
+                current_step     TEXT,
+                idempotency_key  TEXT,
+                error_message    TEXT,
+                started_at       TEXT,
+                finished_at      TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS team_situation_config (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sit_report_date ON team_situation_report(report_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sit_member_report ON member_situation(report_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sit_proj_report ON project_situation(report_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sit_risk_report ON situation_risk(report_id)")
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_project (
+                id                 TEXT PRIMARY KEY,
+                name               TEXT NOT NULL,
+                description        TEXT NOT NULL,
+                owner_id           TEXT NOT NULL,
+                status             TEXT NOT NULL,
+                type               TEXT,
+                priority           TEXT,
+                business           TEXT,
+                tags_json          TEXT,
+                start_date         TEXT,
+                end_date           TEXT,
+                current_stage_id   TEXT,
+                created_at         TEXT,
+                updated_at         TEXT,
+                archived_at        TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_stage (
+                id                  TEXT PRIMARY KEY,
+                project_id          TEXT NOT NULL,
+                name                TEXT NOT NULL,
+                description         TEXT,
+                sort_order          INTEGER NOT NULL,
+                status              TEXT NOT NULL,
+                progress            REAL,
+                owner_id            TEXT,
+                planned_start_date  TEXT,
+                planned_end_date    TEXT,
+                actual_start_date   TEXT,
+                actual_end_date     TEXT,
+                created_at          TEXT,
+                updated_at          TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_objective (
+                id           TEXT PRIMARY KEY,
+                project_id   TEXT NOT NULL,
+                title        TEXT NOT NULL,
+                description  TEXT,
+                status       TEXT,
+                created_at   TEXT,
+                updated_at   TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_kr (
+                id             TEXT PRIMARY KEY,
+                objective_id   TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                target_value   TEXT,
+                current_value  TEXT,
+                unit           TEXT,
+                status         TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_milestone (
+                id            TEXT PRIMARY KEY,
+                project_id    TEXT NOT NULL,
+                stage_id      TEXT,
+                name          TEXT NOT NULL,
+                description   TEXT,
+                owner_id      TEXT,
+                planned_date  TEXT,
+                actual_date   TEXT,
+                status        TEXT,
+                importance    TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_member (
+                id                   TEXT PRIMARY KEY,
+                project_id           TEXT NOT NULL,
+                user_id              TEXT NOT NULL,
+                role                 TEXT,
+                responsibility       TEXT,
+                participation_level  TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_risk (
+                id            TEXT PRIMARY KEY,
+                project_id    TEXT NOT NULL,
+                title         TEXT NOT NULL,
+                description   TEXT,
+                type          TEXT,
+                level         TEXT,
+                probability   TEXT,
+                impact        TEXT,
+                owner_id      TEXT,
+                mitigation    TEXT,
+                status        TEXT,
+                created_at    TEXT,
+                resolved_at   TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_activity (
+                id            TEXT PRIMARY KEY,
+                project_id    TEXT NOT NULL,
+                stage_id      TEXT,
+                type          TEXT,
+                content       TEXT NOT NULL,
+                source        TEXT,
+                source_id     TEXT,
+                operator_id   TEXT,
+                created_at    TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pc_relation (
+                id                  TEXT PRIMARY KEY,
+                source_project_id   TEXT NOT NULL,
+                target_project_id   TEXT NOT NULL,
+                relation_type       TEXT NOT NULL,
+                description         TEXT,
+                created_at          TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pc_owner ON pc_project(owner_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pc_status ON pc_project(status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pc_stage_proj ON pc_stage(project_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pc_member_proj ON pc_member(project_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pc_risk_proj ON pc_risk(project_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pc_act_proj ON pc_activity(project_id)")
+        c.execute("""
+            UPDATE pc_project SET status = CASE
+                WHEN status IN ('draft', 'planning', 'active') OR status IS NULL OR status = '' THEN 'open'
+                WHEN status IN ('completed', 'archived') THEN 'closed'
+                ELSE status
+            END
+            WHERE status NOT IN ('open', 'paused', 'closed')
+        """)
+
         # 填充初始人设（如果为空）
         c.execute("SELECT COUNT(*) as cnt FROM team_members")
         if c.fetchone()["cnt"] == 0:

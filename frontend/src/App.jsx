@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { CalendarPlus, LayoutDashboard, MessageSquareText, Activity, ChevronRight, Users, Settings, Sparkles, FileSpreadsheet, Network, TrendingUp, Map } from 'lucide-react'
+import { CalendarPlus, LayoutDashboard, MessageSquareText, Activity, ChevronRight, Users, Settings, Sparkles, FileSpreadsheet, Network, TrendingUp, Map, Radar, FolderKanban } from 'lucide-react'
 import { api } from './api/client.js'
 import Dashboard from './components/Dashboard.jsx'
 import EventLogger from './components/EventLogger.jsx'
@@ -11,6 +11,8 @@ import DailyReportPanel from './components/DailyReportPanel.jsx'
 import InfluenceGraphPanel from './components/InfluenceGraphPanel.jsx'
 import PromotionPanel from './components/PromotionPanel.jsx'
 import NewcomerMapPanel from './components/NewcomerMapPanel.jsx'
+import TeamSituationPanel from './components/TeamSituationPanel.jsx'
+import ProjectCenterPanel from './components/ProjectCenterPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 
 const NAV_ITEMS = [
@@ -19,6 +21,8 @@ const NAV_ITEMS = [
   { id: 'logger', label: '录入事件', icon: CalendarPlus },
   { id: 'members', label: '成员管理', icon: Users },
   { id: 'daily-report', label: '日报', icon: FileSpreadsheet },
+  { id: 'project-center', label: '项目中心', icon: FolderKanban },
+  { id: 'team-situation', label: '团队态势', icon: Radar },
   { id: 'ai-native', label: 'AI Native', icon: Sparkles },
   { id: 'newcomer-map', label: '新人地图', icon: Map },
   { id: 'influence-graph', label: '组织影响力网络', icon: Network },
@@ -33,6 +37,7 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [openProjectId, setOpenProjectId] = useState(null)
 
   const triggerRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1)
@@ -74,7 +79,10 @@ export default function App() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveView(item.id)}
+                onClick={() => {
+                  setActiveView(item.id)
+                  if (item.id !== 'project-center') setOpenProjectId(null)
+                }}
                 title={collapsed ? item.label : ''}
                 className={`w-full flex items-center rounded-lg text-sm font-medium transition-all ${
                   collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
@@ -151,6 +159,18 @@ export default function App() {
         )}
         {activeView === 'daily-report' && (
           <DailyReportPanel members={members} />
+        )}
+        {activeView === 'project-center' && (
+          <ProjectCenterPanel members={members} initialProjectId={openProjectId} />
+        )}
+        {activeView === 'team-situation' && (
+          <TeamSituationPanel
+            members={members}
+            onOpenProject={(id) => {
+              setOpenProjectId(id)
+              setActiveView('project-center')
+            }}
+          />
         )}
         {activeView === 'ai-native' && (
           <AiNativePanel members={members} />

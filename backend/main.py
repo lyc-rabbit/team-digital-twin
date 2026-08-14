@@ -105,6 +105,8 @@ from organization_graph.repository.facade import bootstrap_graph
 from promotion import router as promo_router
 from promotion.repository import get_promo_store
 from newcomer import router as newcomer_router, task_router as newcomer_task_router
+from team_situation import router as situation_router, start_scheduler
+from project_center import router as project_router
 
 # ========== 初始化 ==========
 
@@ -122,6 +124,8 @@ app.include_router(oig_router)
 app.include_router(promo_router)
 app.include_router(newcomer_router)
 app.include_router(newcomer_task_router)
+app.include_router(situation_router)
+app.include_router(project_router)
 
 
 @app.on_event("startup")
@@ -129,6 +133,7 @@ def startup():
     init_db()
     bootstrap_graph()
     get_promo_store()
+    start_scheduler()
 
 
 # ========== 请求/响应模型 ==========
