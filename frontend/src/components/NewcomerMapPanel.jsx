@@ -3,6 +3,8 @@ import {
   Map, Plus, ArrowLeft, Loader2, Sparkles, BookOpen, ListTodo, Target, ShieldAlert,
 } from 'lucide-react'
 import { api } from '../api/client.js'
+import { beijingToday } from '../utils/beijingTime.js'
+import { RecordEventButton } from './EventRecorderContext.jsx'
 
 const LEVEL_DOT = {
   required: { cls: 'bg-red-50 text-red-700 border-red-100', label: '必须介入', icon: '🔴' },
@@ -209,7 +211,17 @@ function NewcomerDetail({ detail, setDetail, onBack, onError }) {
           <h2 className="text-xl font-bold text-slate-800">{nc.employee_name}</h2>
           <p className="text-sm text-slate-500 mt-1">入职第 {nc.days} 天 · {nc.current_role}</p>
         </div>
-        <label className="text-xs text-slate-600 flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-2">
+          <RecordEventButton context={{
+            source: 'newcomer-map',
+            person_id: nc.employee_id,
+            newcomer_id: nc.id,
+            stage_id: nc.onboarding_stage,
+            role_id: nc.target_role_id,
+            event_type: 'communication',
+            event_tag: 'problem_raise',
+          }} label="记录事件" />
+          <label className="text-xs text-slate-600 flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
           <input
             type="checkbox"
             checked={!!nc.compete_in_ranking}
@@ -223,6 +235,7 @@ function NewcomerDetail({ detail, setDetail, onBack, onError }) {
           />
           参与角色竞争
         </label>
+        </div>
       </div>
 
       {analyzing && (
@@ -236,6 +249,7 @@ function NewcomerDetail({ detail, setDetail, onBack, onError }) {
       <div className="flex gap-2 text-xs">
         {[
           ['overview', '总览'],
+          ['stages', '阶段培养'],
           ['guide', '入职指南'],
           ['tasks', '培养任务'],
         ].map(([id, label]) => (
@@ -347,6 +361,10 @@ function NewcomerDetail({ detail, setDetail, onBack, onError }) {
             )}
           </section>
         </div>
+      )}
+
+      {tab === 'stages' && (
+        <StageRecordsTab detail={detail} onRefresh={refresh} />
       )}
 
       {tab === 'guide' && (
@@ -549,7 +567,7 @@ function TaskBlock({ task, onChange, onComplete }) {
 function AddModal({ members, existing, roles, onClose, onCreated, onError }) {
   const available = members.filter((m) => !existing.has(m.id))
   const [employeeId, setEmployeeId] = useState(available[0]?.id || '')
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10))
+  const [entryDate, setEntryDate] = useState(beijingToday)
   const [targetRoleId, setTargetRoleId] = useState('developer')
   const [compete, setCompete] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -606,6 +624,131 @@ function AddModal({ members, existing, roles, onClose, onCreated, onError }) {
       </div>
     </div>
   )
+}
+
+function StageRecordsTab({ detail, onRefresh }) {
+  const nc = detail.newcomer || {}
+  const records = detail.stage_records || []
+  const [openId, setOpenId] = useState(records.find((s) => s.stage_id === nc.onboarding_stage)?.stage_id || records[0]?.stage_id)
+  const rec = records.find((s) => s.stage_id === openId) || records[0]
+  const [form, setForm] = useState(rec || {})
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setForm(records.find((s) => s.stage_id === openId) || {})
+  }, [openId, detail])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.saveNewcomerStage(nc.employee_id, form.stage_id, {
+        stage_goal: form.stage_goal,
+        role_requirements: form.role_requirements,
+        human_ai_division: form.human_ai_division,
+        self_eval: form.self_eval,
+        mentor_eval: form.mentor_eval,
+        result: form.result,
+        passed: form.passed,
+      })
+      await onRefresh()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const setDivision = (idx, key, value) => {
+    const rows = [...(form.human_ai_division || [])]
+    rows[idx] = { ...rows[idx], [key]: value }
+    setForm({ ...form, human_ai_division: rows })
+  }
+
+  if (!records.length) {
+    return <p className="text-xs text-slate-400">暂无阶段记录。保存一次事件后会自动带出当前阶段。</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-1.5">
+        {records.map((s) => (
+          <button key={s.stage_id} onClick={() => setOpenId(s.stage_id)}
+            className={`text-xs px-3 py-1.5 rounded-full border ${openId === s.stage_id ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-slate-200 text-slate-600'}`}>
+            {s.stage_label}{s.passed ? ' ✓' : ''}
+          </button>
+        ))}
+      </div>
+      {form && (
+        <section className="bg-white rounded-2xl border border-slate-100 p-5 space-y-3">
+          <h3 className="text-sm font-bold text-slate-800">{form.stage_label}</h3>
+          <label className="block text-xs text-slate-600">阶段目标
+            <textarea className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" rows={2} value={form.stage_goal || ''} onChange={(e) => setForm({ ...form, stage_goal: e.target.value })} />
+          </label>
+          <label className="block text-xs text-slate-600">岗位要求
+            <textarea className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" rows={2} value={form.role_requirements || ''} onChange={(e) => setForm({ ...form, role_requirements: e.target.value })} />
+          </label>
+          <div>
+            <div className="text-xs font-semibold text-slate-700 mb-2">人 / AI 分工</div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-400">
+                  <th className="text-left py-1">工作项</th>
+                  <th>人</th>
+                  <th>AI</th>
+                  <th>最终责任</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(form.human_ai_division || []).map((row, i) => (
+                  <tr key={row.item || i} className="border-t border-slate-50">
+                    <td className="py-1.5">{row.item}</td>
+                    <td className="text-center">{cellMark(row.human)}</td>
+                    <td className="text-center">{cellMark(row.ai)}</td>
+                    <td className="text-center">
+                      <select className="border rounded px-1 py-0.5" value={row.owner || '人'} onChange={(e) => setDivision(i, 'owner', e.target.value)}>
+                        <option>人</option>
+                        <option>AI</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <label className="block text-xs text-slate-600">新人自评
+            <textarea className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" rows={2} value={form.self_eval || ''} onChange={(e) => setForm({ ...form, self_eval: e.target.value })} />
+          </label>
+          <label className="block text-xs text-slate-600">导师评价
+            <textarea className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" rows={2} value={form.mentor_eval || ''} onChange={(e) => setForm({ ...form, mentor_eval: e.target.value })} />
+          </label>
+          <label className="block text-xs text-slate-600">阶段结果
+            <textarea className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" rows={2} value={form.result || ''} onChange={(e) => setForm({ ...form, result: e.target.value })} />
+          </label>
+          <div>
+            <div className="text-xs font-semibold text-slate-700 mb-1">事实事件</div>
+            {(form.events || []).length === 0 ? <p className="text-xs text-slate-400">本阶段还没有关联事件</p> : form.events.map((e) => (
+              <div key={e.id} className="text-xs text-slate-600 py-1 border-b border-slate-50">
+                {(e.event_time || '').slice(0, 10)} · {(e.raw_summary || '').slice(0, 80)}
+              </div>
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={!!form.passed} onChange={(e) => setForm({ ...form, passed: e.target.checked })} />
+            本阶段已达标
+          </label>
+          <button onClick={save} disabled={saving} className="text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+            {saving ? '保存中...' : '保存阶段记录'}
+          </button>
+        </section>
+      )}
+    </div>
+  )
+}
+
+function cellMark(v) {
+  if (v === true || v === 'yes') return '✅'
+  if (v === false || v === 'no') return '❌'
+  if (v === 'review') return 'Review'
+  if (v === 'assist') return '辅助'
+  return String(v || '—')
 }
 
 function Stat({ label, value, accent }) {

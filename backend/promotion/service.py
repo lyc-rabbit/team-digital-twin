@@ -394,6 +394,7 @@ def get_simulation_detail(sim_id):
             "name": m.get("name") or r["person_id"],
             "role": m.get("role") or "",
             "person": analysis.get("person") or m.get("name") or r["person_id"],
+            "growth": _growth_overlay(r["person_id"]),
         })
     return {
         "simulation": sim,
@@ -406,6 +407,14 @@ def get_simulation_detail(sim_id):
             "custom_requirements": sim.get("custom_requirements") or [],
         },
     }
+
+
+def _growth_overlay(person_id):
+    try:
+        from growth.cadre import promotion_assessment
+        return promotion_assessment(person_id)
+    except Exception:
+        return None
 
 
 def update_weights(sim_id, layer_weights=None, custom_requirements=None, sub_weights=None):

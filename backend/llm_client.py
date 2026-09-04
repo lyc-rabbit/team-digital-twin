@@ -12,7 +12,12 @@ import os
 import json
 import re
 import traceback
+import httpx
 from openai import OpenAI
+
+from local_proxy import disable_local_proxy
+
+disable_local_proxy()
 
 # ========== 配置(实时读取,支持运行时热更新) ==========
 
@@ -36,7 +41,12 @@ def get_client():
     # Key 变更时重建客户端
     if _client is None or _cached_key != current_key:
         if current_key:
-            _client = OpenAI(api_key=current_key, base_url=base_url)
+            disable_local_proxy()
+            _client = OpenAI(
+                api_key=current_key,
+                base_url=base_url,
+                http_client=httpx.Client(trust_env=False, timeout=120.0),
+            )
             _cached_key = current_key
         else:
             _client = None
@@ -758,6 +768,52 @@ DAILY_REPORT_SYSTEM_PROMPT = """你是团队日报分析专家。根据一条日
 - skills / projects 各不超过 5 个
 - 从文本中抽取，不要臆造不存在的项目名
 - 用中文"""
+
+
+def rewrite_daily_report(raw_text, style_prompt, style_label=None):
+    """按风格提示词把口语描述改写成日报正文。"""
+    global _last_call_degraded
+    text = (raw_text or "").strip()
+    prompt = (style_prompt or "").strip()
+    if not text:
+        return ""
+    if is_mock_mode():
+        _last_call_degraded = True
+        return _mock_rewrite_daily_report(text, style_label)
+    _last_call_degraded = False
+
+    if "{input}" in prompt:
+        user_content = prompt.replace("{input}", text)
+        messages = [{"role": "user", "content": user_content}]
+    else:
+        messages = [
+            {"role": "system", "content": prompt or "请把用户描述改写成专业日报正文，不要编造事实。"},
+            {"role": "user", "content": f"工作描述：\n{text}\n\n请按系统要求改写，只输出日报正文。"},
+        ]
+
+    try:
+        client = get_client()
+        response = client.chat.completions.create(
+            model=_get_env("DEEPSEEK_MODEL_CHAT", "deepseek-ai/DeepSeek-V3"),
+            messages=messages,
+            temperature=0.4,
+            max_tokens=2048,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if not content:
+            raise ValueError("LLM 返回空 content")
+        return content
+    except Exception as e:
+        _last_call_degraded = True
+        _log_llm_failure("daily_report_rewrite", e, response=None)
+        return _mock_rewrite_daily_report(text, style_label)
+
+
+def _mock_rewrite_daily_report(text, style_label=None):
+    lines = [ln.strip(" -•\t") for ln in (text or "").splitlines() if ln.strip()]
+    body = "；".join(lines) if lines else (text or "").strip()
+    prefix = f"【{style_label}】" if style_label else ""
+    return f"{prefix}{body}".strip()
 
 
 def analyze_daily_report(content, member_name=None, report_date=None):

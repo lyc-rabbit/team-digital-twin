@@ -2,17 +2,17 @@
 
 import json
 import uuid
-from datetime import datetime
+from timeutil import now_iso, today
 
 from database import get_db, get_member
 
 
 def _now():
-    return datetime.now().isoformat(timespec="seconds")
+    return now_iso()
 
 
 def _today():
-    return datetime.now().strftime("%Y-%m-%d")
+    return today()
 
 
 def _id(prefix):

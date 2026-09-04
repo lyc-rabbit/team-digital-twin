@@ -1,7 +1,8 @@
 """态势分析流水线：采集 → 校验 → 指标 → 变化/风险 → LLM → 落库。"""
 
 import threading
-from datetime import datetime
+
+from timeutil import now_iso, today as beijing_today
 
 from . import repository as repo
 from .collectors import collect_snapshot
@@ -31,7 +32,7 @@ def get_status():
 
 
 def start_analyze(idempotency_key=None, trigger="manual"):
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = beijing_today()
     key = (idempotency_key or "").strip() or f"manual-{today}"
     with _lock:
         running = repo.get_running_job()
@@ -143,20 +144,20 @@ def _run(job_id, report_date, trigger):
         })
         repo.update_job(
             job_id, status="success", progress=100, current_step="今日分析完成",
-            finished_at=datetime.now().isoformat(timespec="seconds"),
+            finished_at=now_iso(),
         )
         print(f"[situation] 报告已生成 {report_date} id={report['id']} score={health['team_health_score']}")
     except Exception as e:
         repo.update_job(
             job_id, status="failed", current_step="失败",
             error_message=str(e),
-            finished_at=datetime.now().isoformat(timespec="seconds"),
+            finished_at=now_iso(),
         )
         print(f"[situation] 分析失败: {e}")
 
 
 def today_payload():
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = beijing_today()
     report = repo.get_report_by_date(today) or repo.latest_report()
     job = get_status()
     cfg = repo.get_config()
@@ -165,7 +166,7 @@ def today_payload():
         "job": job,
         "is_today": bool(report and report.get("report_date") == today),
         "config": cfg,
-        "server_time": datetime.now().isoformat(timespec="seconds"),
+        "server_time": now_iso(),
     }
 
 

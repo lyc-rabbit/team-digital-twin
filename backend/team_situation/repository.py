@@ -2,13 +2,13 @@
 
 import json
 import uuid
-from datetime import datetime
+from timeutil import now_iso
 
 from database import get_db
 
 
 def _now():
-    return datetime.now().isoformat(timespec="seconds")
+    return now_iso()
 
 
 def _dumps(obj):
@@ -325,7 +325,7 @@ def list_recent_reports(days=7):
     with get_db() as conn:
         rows = conn.execute(
             """SELECT * FROM team_situation_report
-               WHERE report_date >= date('now', ?)
+               WHERE report_date >= date('now', '+8 hours', ?)
                ORDER BY report_date ASC""",
             (f"-{int(days)} days",),
         ).fetchall()
@@ -470,7 +470,7 @@ def list_context(context_date=None, days=7):
         query += " AND context_date = ?"
         params.append(context_date)
     else:
-        query += " AND context_date >= date('now', ?)"
+        query += " AND context_date >= date('now', '+8 hours', ?)"
         params.append(f"-{int(days)} days")
     query += " ORDER BY created_at DESC"
     with get_db() as conn:

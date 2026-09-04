@@ -2,7 +2,8 @@
 
 import re
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta
+
+from timeutil import now_iso, today as beijing_today, today_minus_days
 
 from database import get_all_members, get_daily_reports
 from newcomer.repository import list_newcomers, list_tasks as list_nc_tasks
@@ -35,11 +36,11 @@ FOCUS_KEYWORDS = {
 
 
 def _today():
-    return datetime.now().strftime("%Y-%m-%d")
+    return beijing_today()
 
 
 def _days_ago(n):
-    return (datetime.now() - timedelta(days=n)).strftime("%Y-%m-%d")
+    return today_minus_days(n)
 
 
 def _slug(name):
@@ -113,7 +114,7 @@ def collect_snapshot(days=90):
     week_ago_date = _days_ago(7)
     week_ago = repo.get_report_by_date(week_ago_date) or repo.latest_report_before(week_ago_date)
     return {
-        "collected_at": datetime.now().isoformat(timespec="seconds"),
+        "collected_at": now_iso(),
         "members": members,
         "all_members": all_members,
         "included_member_ids": [m["id"] for m in members],

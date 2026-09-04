@@ -36,6 +36,8 @@ class Neo4jRepository:
             self.error = "未配置 NEO4J_URI"
             return
         try:
+            from local_proxy import disable_local_proxy
+            disable_local_proxy()
             from neo4j import GraphDatabase
             self.driver = GraphDatabase.driver(
                 cfg["uri"],
@@ -93,11 +95,13 @@ class Neo4jRepository:
         with self._session() as session:
             session.run("MATCH (n) DETACH DELETE n")
 
-    def list_nodes(self, node_type: Optional[str] = None) -> list:
-        cypher = "MATCH (n) "
+    def list_nodes(self, node_type: Optional[str] = None, include_merged: bool = False) -> list:
+        cypher = "MATCH (n) WHERE 1=1 "
         params = {}
+        if not include_merged:
+            cypher += "AND NOT coalesce(n.entity_status, 'ACTIVE') IN ['MERGED', 'RETIRED'] "
         if node_type:
-            cypher += "WHERE n.type = $node_type "
+            cypher += "AND n.type = $node_type "
             params["node_type"] = node_type
         cypher += "RETURN n ORDER BY n.type, n.name"
         with self._session() as session:
@@ -114,7 +118,7 @@ class Neo4jRepository:
     def find_person(self, person_id: str) -> Optional[dict]:
         node = self.get_node(person_id)
         if node and node.get("type") == "Person":
-            return node
+            return self._follow_canonical(node)
         with self._session() as session:
             rec = session.run(
                 """
@@ -124,9 +128,20 @@ class Neo4jRepository:
                 """,
                 id=person_id,
             ).single()
-            return _node_from_graph(rec["n"]) if rec else None
+            node = _node_from_graph(rec["n"]) if rec else None
+        return self._follow_canonical(node) if node else None
 
-    def list_edges(self, relation: Optional[str] = None, source=None, target=None) -> list:
+    def _follow_canonical(self, node: dict) -> dict:
+        if (node.get("entity_status") or "ACTIVE") != "MERGED":
+            return node
+        cid = node.get("canonical_entity_id")
+        if cid and cid != node.get("id"):
+            canon = self.get_node(cid)
+            if canon:
+                return canon
+        return node
+
+    def list_edges(self, relation: Optional[str] = None, source=None, target=None, include_merged: bool = False) -> list:
         cypher = "MATCH (a)-[r]->(b) WHERE 1=1 "
         params = {}
         if relation:
@@ -138,6 +153,14 @@ class Neo4jRepository:
         if target:
             cypher += "AND b.id = $target "
             params["target"] = target
+        if not include_merged:
+            cypher += """
+                AND NOT coalesce(a.entity_status, 'ACTIVE') IN ['MERGED', 'RETIRED']
+                AND NOT coalesce(b.entity_status, 'ACTIVE') IN ['MERGED', 'RETIRED']
+                AND NOT coalesce(r.entity_status, 'ACTIVE') IN ['MERGED', 'RETIRED']
+                AND type(r) <> 'MERGED_INTO'
+                AND type(r) <> 'ALIAS_OF'
+            """
         cypher += "RETURN a.id AS source, b.id AS target, type(r) AS relation, properties(r) AS props"
         with self._session() as session:
             return [_edge_from_record(rec) for rec in session.run(cypher, **params)]
@@ -156,6 +179,11 @@ class Neo4jRepository:
                 id=node_id,
             )
             edges = [_edge_from_record(rec) for rec in rows]
+        edges = [
+            e for e in edges
+            if e.get("relation") not in ("MERGED_INTO", "ALIAS_OF")
+            and (e.get("properties") or {}).get("entity_status") != "MERGED"
+        ]
         if relations:
             allowed = {_safe_label(x) for x in relations}
             edges = [e for e in edges if e["relation"] in allowed]
@@ -186,6 +214,19 @@ class Neo4jRepository:
                 source=source,
                 target=target,
                 props=props,
+            )
+        return f"{source}|{relation}|{target}"
+
+    def delete_edge(self, source, target, relation):
+        rel = _safe_label(relation or "RELATED")
+        with self._session() as session:
+            session.run(
+                f"""
+                MATCH (a {{id: $source}})-[r:{rel}]->(b {{id: $target}})
+                DELETE r
+                """,
+                source=source,
+                target=target,
             )
         return f"{source}|{relation}|{target}"
 

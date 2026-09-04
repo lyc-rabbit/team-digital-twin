@@ -9,7 +9,7 @@ AI Native 角色分析引擎
 import threading
 import time
 import uuid
-from datetime import datetime
+from timeutil import now_stamp
 from copy import deepcopy
 
 from database import (
@@ -155,7 +155,7 @@ def list_role_cards():
             } if owner else None,
             "competitors": competitors,
             "responsibilities": role.get("responsibilities") or [],
-            "required_skills": role.get("required_skills") or [],
+            "required_skills": _with_communication_skill(role.get("required_skills") or []),
             "evaluation_scope": {
                 "type": role.get("evaluation_scope_type") or "TEAM",
                 "label": scope_label(role),
@@ -169,6 +169,37 @@ def list_role_cards():
 
     summary = get_coverage_summary(roles, assignments, competitions, members)
     return {"roles": cards, "summary": summary, "ranking_status": get_ranking_status()}
+
+
+def _with_communication_skill(skills):
+    items = list(skills or [])
+    if "问题定义与结构化沟通" not in items:
+        items.append("问题定义与结构化沟通")
+    return items
+
+
+def _role_standards(role_id):
+    try:
+        from growth.standards import get_role_standards
+        return get_role_standards(role_id)
+    except Exception:
+        return {"dimensions": []}
+
+
+def _communication_capability():
+    try:
+        from growth.standards import COMMUNICATION_CAPABILITY
+        return COMMUNICATION_CAPABILITY
+    except Exception:
+        return {}
+
+
+def _human_ai(role_id):
+    try:
+        from growth.standards import human_ai_for_role
+        return human_ai_for_role(role_id)
+    except Exception:
+        return []
 
 
 def get_role_detail(role_id):
@@ -269,7 +300,7 @@ def get_role_detail(role_id):
             "name": role["role_name"],
             "description": role.get("description") or "",
             "responsibilities": role.get("responsibilities") or [],
-            "required_skills": role.get("required_skills") or [],
+            "required_skills": _with_communication_skill(role.get("required_skills") or []),
         },
         "current_owner": current_owner,
         "competition": competition,
@@ -288,6 +319,9 @@ def get_role_detail(role_id):
             "projects": list_known_projects(),
         },
         "leadership_formula": "能力 + 业绩 + 团队认可 + 组织影响力 + 资源控制 - 冲突风险",
+        "training_standards": _role_standards(role["id"]),
+        "communication_capability": _communication_capability(),
+        "human_ai_division": _human_ai(role["id"]),
     }
 
 
@@ -338,7 +372,7 @@ def start_ranking_update():
         _task_state.update({
             "status": "running",
             "task_id": task_id,
-            "start_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "start_time": now_stamp(),
             "end_time": None,
             "progress": 0,
             "message": "任务已启动",
@@ -370,7 +404,7 @@ def _run_ranking_task(task_id):
         result = analyze_ai_native_roles(members, roles, events, daily_evidence=evidence)
 
         _set_status(progress=75, message="正在计算竞争排名与风险")
-        analysis_version = datetime.now().strftime("%Y%m%d%H%M%S")
+        analysis_version = now_stamp("%Y%m%d%H%M%S")
         assignments, competitions = _normalize_analysis_result(result, members, roles)
 
         _set_status(progress=90, message="写入分析结果")
@@ -385,7 +419,7 @@ def _run_ranking_task(task_id):
             status="success",
             progress=100,
             message=msg,
-            end_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            end_time=now_stamp(),
             error=None,
         )
     except Exception as e:
@@ -393,7 +427,7 @@ def _run_ranking_task(task_id):
             status="failed",
             progress=_task_state.get("progress", 0),
             message=f"分析失败：{e}",
-            end_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            end_time=now_stamp(),
             error=str(e),
         )
 

@@ -4,6 +4,7 @@ import {
   Users, Target, AlertTriangle, Loader2, Shield,
 } from 'lucide-react'
 import { api } from '../api/client.js'
+import { RecordEventButton } from './EventRecorderContext.jsx'
 
 export default function AiNativePanel({ members }) {
   const [roles, setRoles] = useState([])
@@ -174,11 +175,13 @@ export default function AiNativePanel({ members }) {
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Sparkles size={20} className="text-brand-600" />
-            AI Native团队角色地图
+            角色卡
           </h2>
-          <p className="text-sm text-slate-500 mt-1">当前团队 AI Native 覆盖情况 · 角色匹配 · 竞争风险</p>
+          <p className="text-sm text-slate-500 mt-1">角色职责 · 培养标准 · 人AI分工 · 问题定义与结构化沟通</p>
         </div>
-        <button
+        <div className="flex items-center gap-2">
+          <RecordEventButton context={{ source: 'role-card', event_type: 'people_development' }} />
+          <button
           onClick={handleUpdateRanking}
           disabled={isRunning}
           className="flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed px-3.5 py-2 rounded-lg transition-colors"
@@ -186,6 +189,7 @@ export default function AiNativePanel({ members }) {
           {isRunning ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
           {isRunning ? '更新排名中...' : '更新排名'}
         </button>
+        </div>
       </div>
 
       {/* 覆盖摘要 */}
@@ -420,6 +424,54 @@ function RoleDetailView({ detail, loading, onBack, onRerun, onScopeSaved, rankin
         ) : (
           <p className="text-xs text-slate-400">暂无</p>
         )}
+      </section>
+
+      <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
+        <h3 className="text-sm font-bold text-slate-800">培养标准</h3>
+        {(detail.training_standards?.dimensions || []).map((d) => (
+          <div key={d.id} className="border border-slate-100 rounded-lg p-3">
+            <div className="text-xs font-semibold text-slate-800 mb-1.5">{d.name}</div>
+            <div className="space-y-1">
+              {Object.entries(d.levels || {}).map(([lv, text]) => (
+                <div key={lv} className="text-[11px] text-slate-600 flex gap-2">
+                  <span className="text-slate-400 w-20 flex-none">{lv === 'management' ? '干部要求' : lv}</span>
+                  <span>{text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </section>
+
+      <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-2">
+        <h3 className="text-sm font-bold text-slate-800">问题定义与结构化沟通</h3>
+        <p className="text-xs text-slate-600">{detail.communication_capability?.description}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {(detail.communication_capability?.evaluations || []).map((e) => (
+            <span key={e.id} className="text-[11px] bg-brand-50 text-brand-700 px-2 py-1 rounded-md">{e.label}</span>
+          ))}
+        </div>
+      </section>
+
+      <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-2">
+        <h3 className="text-sm font-bold text-slate-800">人 / AI 分工</h3>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-slate-400">
+              <th className="text-left py-1">工作项</th><th>人</th><th>AI</th><th>最终责任</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(detail.human_ai_division || []).map((row) => (
+              <tr key={row.item} className="border-t border-slate-50 text-slate-700">
+                <td className="py-1.5">{row.item}</td>
+                <td className="text-center">{row.human === true ? '✅' : row.human === 'review' ? 'Review' : row.human === 'assist' ? '辅助' : '—'}</td>
+                <td className="text-center">{row.ai === true ? '✅' : row.ai === false ? '❌' : row.ai === 'assist' ? '辅助' : String(row.ai || '—')}</td>
+                <td className="text-center">{row.owner}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       {owner && (

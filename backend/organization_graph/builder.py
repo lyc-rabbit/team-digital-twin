@@ -9,7 +9,8 @@ import json
 import re
 import threading
 from collections import defaultdict
-from datetime import datetime
+
+from timeutil import now_iso, today
 
 from database import (
     get_all_members,
@@ -31,13 +32,17 @@ from .ontology.relations import (
     REL_HAS_ROLE,
     REL_INFORMAL,
     REL_INVOLVED_IN,
-    REL_MENTOR,
-    REL_OWNER,
     REL_REPORT_TO,
     REL_TRUST,
     REL_WORKS_ON,
+    REL_HAS_SUB_RESOURCE,
+    REL_HAS_RESOURCE,
+    REL_EXECUTION_RESPONSIBILITY,
+    REL_PERFORMED_TRAINING,
+    REL_TRAINING_TARGET,
     relation_template,
 )
+from .ontology.resources import KEYWORD_RESOURCES, RESOURCE_CLASSES
 from .repository.store import get_sqlite_store
 from .repository.neo4j import get_neo4j
 from .repository.facade import get_facade
@@ -52,7 +57,7 @@ def _slug(text, prefix):
 
 
 def _today():
-    return datetime.now().strftime("%Y-%m-%d")
+    return today()
 
 
 class GraphBuilder:
@@ -60,12 +65,67 @@ class GraphBuilder:
         self.store = store or get_sqlite_store()
         self._lock = threading.RLock()
 
+    def _is_suppressed(self, node_type, name, *ids):
+        id_set = getattr(self, "_suppressed_ids", set())
+        key_set = getattr(self, "_suppressed_keys", set())
+        for nid in ids:
+            if nid and nid in id_set:
+                return True
+        key = (node_type, (name or "").strip())
+        return bool(key[1]) and key in key_set
+
+    def _ensure_entity(self, node_type, name, preferred_id=None, **attrs):
+        """经统一实体层解析后再写入，避免同名不同源拆成多个节点。"""
+        if self._is_suppressed(node_type, name, preferred_id):
+            return None
+        from entity_governance.service import resolve_entity
+
+        result = resolve_entity(
+            node_type,
+            name,
+            attributes=attrs,
+            source={"type": "graph_builder"},
+            preferred_id=preferred_id,
+            create_if_new=True,
+        )
+        nid = result["canonical_entity_id"]
+        display = result.get("canonical_name") or name
+        if self._is_suppressed(node_type, display, nid, preferred_id):
+            return None
+        existing = self.store.get_node(nid)
+        if existing:
+            node = dict(existing)
+            for k, v in attrs.items():
+                if v not in (None, "", [], {}) and node.get(k) in (None, "", [], {}):
+                    node[k] = v
+            node["entity_status"] = "ACTIVE"
+            node["canonical_entity_id"] = nid
+            if result.get("via") in ("alias", "auto_match"):
+                node["name"] = existing.get("name") or display
+            self.store.upsert_node(node)
+            return nid
+        node = node_template(node_type, nid, display, **attrs)
+        node["entity_status"] = "ACTIVE"
+        node["canonical_entity_id"] = nid
+        self.store.upsert_node(node)
+        return nid
+
     def rebuild(self, persist_communities=True, sync_neo4j=True):
         with self._lock:
             return self._rebuild_unlocked(persist_communities, sync_neo4j)
 
     def _rebuild_unlocked(self, persist_communities=True, sync_neo4j=True):
         members = get_all_members()
+        self._suppressed_ids = set()
+        self._suppressed_keys = set()
+        try:
+            from knowledge_governance.repository import get_kg_store
+            kg = get_kg_store()
+            self._suppressed_ids = set(kg.suppressed_node_ids())
+            self._suppressed_keys = set(kg.suppressed_keys())
+        except Exception:
+            self._suppressed_ids = set()
+            self._suppressed_keys = set()
         self.store.clear()
 
         self._build_org(members)
@@ -81,11 +141,14 @@ class GraphBuilder:
         if persist_communities:
             communities = self._write_communities()
 
+        self._enhance_semantics()
+        self._sync_temporal()
+
         neo4j_ok = False
         if sync_neo4j:
             neo4j_ok = self._sync_neo4j()
 
-        self.store.set_meta("rebuilt_at", datetime.now().isoformat(timespec="seconds"))
+        self.store.set_meta("rebuilt_at", now_iso())
         self.store.set_meta("backend", "neo4j" if neo4j_ok else "sqlite")
         primary = get_facade()
         return {
@@ -119,28 +182,28 @@ class GraphBuilder:
         for m in members:
             dept = _infer_department(m)
             dept_names.add(dept)
-            skills = []
-            node = node_template(
+            self._ensure_entity(
                 "Person",
-                m["id"],
                 m["name"],
+                preferred_id=m["id"],
                 department=dept,
                 position=m.get("role") or "",
                 join_date=(m.get("created_at") or "")[:7],
-                skills=skills,
+                skills=[],
                 persona=m.get("persona") or "",
                 decision_style=m.get("decision_style") or "",
+                employee_id=m["id"],
             )
-            self.store.upsert_node(node)
 
         if not dept_names:
             dept_names.add("核心团队")
+        dept_ids = {}
         for name in dept_names:
-            self.store.upsert_node(node_template("Department", _slug(name, "dept"), name))
+            dept_ids[name] = self._ensure_entity("Department", name)
 
         for m in members:
             dept = _infer_department(m)
-            self._upsert_rel(m["id"], _slug(dept, "dept"), REL_BELONGS_TO)
+            self._upsert_rel(m["id"], dept_ids[dept], REL_BELONGS_TO)
 
     def _build_roles(self):
         roles = get_ai_native_roles()
@@ -150,12 +213,11 @@ class GraphBuilder:
             assign_by_role[a["role_id"]].append(a)
 
         for role in roles:
-            rid = f"role_{role['id']}"
             skills = role.get("required_skills") or []
-            self.store.upsert_node(node_template(
+            rid = self._ensure_entity(
                 "Role",
-                rid,
                 role.get("role_name") or role["id"],
+                preferred_id=f"role_{role['id']}",
                 description=role.get("description") or "",
                 required_skills=skills,
                 requirements={
@@ -163,7 +225,7 @@ class GraphBuilder:
                     "management": 85 if "负责" in (role.get("role_name") or "") else 65,
                     "communication": 75,
                 },
-            ))
+            )
             owners = sorted(assign_by_role.get(role["id"], []), key=lambda x: x.get("match_score", 0), reverse=True)
             if owners:
                 top = owners[0]
@@ -205,19 +267,18 @@ class GraphBuilder:
             total_days = sum(counts.values())
             if total_days < 2:
                 continue
-            pid = _slug(name, "project")
             importance = "high" if total_days >= 8 else ("medium" if total_days >= 3 else "low")
-            self.store.upsert_node(node_template(
-                "Project", pid, name,
+            pid = self._ensure_entity(
+                "Project", name,
                 importance=importance,
                 status="running",
                 business_value=min(95, 50 + total_days * 4),
-            ))
+            )
             ranked = sorted(counts.items(), key=lambda x: x[1], reverse=True)
             for i, (mid, days) in enumerate(ranked):
                 self._upsert_rel(mid, pid, REL_WORKS_ON, days=days, strength=min(1.0, days / 10.0))
                 if i == 0 and days >= 2:
-                    self._upsert_rel(mid, pid, REL_OWNER, strength=min(1.0, days / 8.0))
+                    self._upsert_rel(mid, pid, REL_EXECUTION_RESPONSIBILITY, strength=min(1.0, days / 8.0))
             ids = [mid for mid, _ in ranked]
             for i, a in enumerate(ids):
                 for b in ids[i + 1:]:
@@ -235,13 +296,11 @@ class GraphBuilder:
         for skill, people in ranked_skills[:18]:
             if len(people) < 1:
                 continue
-            kid = _slug(skill, "knowledge")
-            self.store.upsert_node(node_template("Knowledge", kid, f"{skill}经验", domain=skill))
+            kid = self._ensure_entity("Knowledge", f"{skill}经验", domain=skill)
             for mid in people:
                 self._upsert_rel(mid, kid, REL_HAS_KNOWLEDGE, level=0.7, strength=0.6)
             if len(people) >= 2:
-                gid = _slug(f"{skill}圈", "group")
-                self.store.upsert_node(node_template("InformalGroup", gid, f"{skill}圈", theme=skill))
+                gid = self._ensure_entity("InformalGroup", f"{skill}圈", theme=skill)
                 for mid in people:
                     self._upsert_rel(mid, gid, REL_INFORMAL, affinity=0.7, strength=0.55)
 
@@ -258,6 +317,9 @@ class GraphBuilder:
         member_ids = {m["id"] for m in members}
 
         for ev in events:
+            eid = f"event_{ev.get('id')}"
+            if eid in getattr(self, "_suppressed_ids", set()):
+                continue
             involved = ev.get("involved_members") or []
             if isinstance(involved, str):
                 try:
@@ -267,17 +329,22 @@ class GraphBuilder:
             involved = [x for x in involved if x in member_ids]
             summary = ev.get("raw_summary") or ""
             etime = (ev.get("event_time") or "")[:10]
-            eid = f"event_{ev.get('id')}"
-            self.store.upsert_node(node_template(
-                "Event", eid, (summary[:24] or f"事件{ev.get('id')}"),
+            self._ensure_entity(
+                "Event",
+                summary[:24] or f"事件{ev.get('id')}",
+                preferred_id=eid,
                 time=etime,
                 description=summary,
-            ))
+                event_type=ev.get("event_type") or "",
+            )
             for mid in involved:
                 self._upsert_rel(mid, eid, REL_INVOLVED_IN, role="participant", strength=0.5)
 
             if len(involved) >= 2:
                 rel, extra = _classify_event(summary)
+                if rel == "TRAINING_ACTION":
+                    self._write_training_action(involved, ev, summary, etime, extra)
+                    continue
                 for i, a in enumerate(involved):
                     for b in involved[i + 1:]:
                         self._upsert_rel(
@@ -325,6 +392,22 @@ class GraphBuilder:
                     last_update=last,
                 )
 
+    def _write_training_action(self, involved, ev, summary, etime, extra):
+        """培养是行为节点，不因同场人员两两连 MENTOR，也不从汇报关系推出。"""
+        tid = self._ensure_entity(
+            "TrainingAction",
+            f"培养·{(summary or '')[:18] or ev.get('id')}",
+            preferred_id=f"train_{ev.get('id')}",
+            action_type=extra.get("action_type") or "指导",
+            evidence=(summary or "")[:200],
+            confidence=float(extra.get("strength") or 0.7),
+        )
+        if not tid:
+            return
+        eid = f"event_{ev.get('id')}"
+        if self.store.get_node(eid):
+            self._upsert_rel(eid, tid, "RELATED_TO", role="training", strength=0.5)
+
     def _infer_report_to(self, members):
         if not members:
             return
@@ -352,46 +435,95 @@ class GraphBuilder:
                 strength=0.9,
             )
 
+    def _ensure_resource_class(self, spec):
+        return self._ensure_entity(
+            "Resource",
+            spec["name"],
+            importance=spec.get("importance") or 70,
+            category=spec.get("category") or "tech",
+            resource_kind="class",
+        )
+
+    def _ensure_resource_instance(self, name, *, category, importance, parent_id):
+        rid = self._ensure_entity(
+            "Resource",
+            name,
+            importance=importance,
+            category=category,
+            resource_kind="instance",
+            parent_resource_id=parent_id,
+        )
+        if parent_id:
+            self._upsert_rel(parent_id, rid, REL_HAS_SUB_RESOURCE, strength=0.85)
+        return rid
+
     def _infer_resources(self, members):
-        keywords = {
-            "GPU": ("GPU集群", "tech", 90),
-            "数据": ("核心数据资源", "data", 80),
-            "模型": ("核心模型资产", "tech", 85),
-            "客户": ("客户资源", "customer", 75),
-            "预算": ("预算资源", "budget", 70),
-        }
-        # 从人员技能 / 知识节点推断资源控制
+        class_ids = {}
+        for spec in RESOURCE_CLASSES:
+            class_ids[spec["name"]] = self._ensure_resource_class(spec)
+
+        # 从人员技能 / 知识节点推断明细资源，并挂到总类下
         for n in self.store.list_nodes("Knowledge"):
             domain = n.get("domain") or n.get("name") or ""
-            for kw, (rname, cat, imp) in keywords.items():
+            for kw, spec in KEYWORD_RESOURCES.items():
                 if kw in domain or kw in (n.get("name") or ""):
-                    rid = _slug(rname, "resource")
-                    self.store.upsert_node(node_template("Resource", rid, rname, importance=imp, category=cat))
+                    parent_id = class_ids.get(spec["class_name"])
+                    rid = self._ensure_resource_instance(
+                        spec["name"],
+                        category=spec["category"],
+                        importance=spec["importance"],
+                        parent_id=parent_id,
+                    )
                     for e in self.store.list_edges(relation=REL_HAS_KNOWLEDGE, target=n["id"]):
                         self._upsert_rel(
                             e["source"], rid, REL_CONTROL,
-                            resource_value=imp,
-                            strength=min(1.0, imp / 100.0),
+                            resource_value=spec["importance"],
+                            strength=min(1.0, spec["importance"] / 100.0),
                         )
 
-        # 高频项目负责人视为控制该项目对应的交付资源
+        # 项目交付：总类「交付资源」→「越南代理交付资源」；项目同时挂到明细
+        delivery_id = class_ids.get("交付资源")
         for proj in self.store.list_nodes("Project"):
-            owners = self.store.list_edges(relation=REL_OWNER, target=proj["id"])
+            owners = self.store.list_edges(relation=REL_EXECUTION_RESPONSIBILITY, target=proj["id"])
             if not owners:
                 continue
             rname = f"{proj['name']}交付资源"
-            rid = _slug(rname, "resource")
-            self.store.upsert_node(node_template(
-                "Resource", rid, rname,
+            rid = self._ensure_resource_instance(
+                rname,
+                category="delivery",
                 importance=int(proj.get("business_value") or 70),
-                category="project",
-            ))
+                parent_id=delivery_id,
+            )
+            self._upsert_rel(proj["id"], rid, REL_HAS_RESOURCE, strength=0.75)
             for e in owners:
                 self._upsert_rel(
                     e["source"], rid, REL_CONTROL,
                     resource_value=int(proj.get("business_value") or 70),
                     strength=0.7,
                 )
+
+    def _enhance_semantics(self):
+        """propose：只产工单并回放已确认项。未确认不得写 ontology_type / 推断边。"""
+        try:
+            from knowledge_governance.service import propose_semantics
+            result = propose_semantics(self.store, source="rebuild")
+            wi = result.get("work_items") or {}
+            print(
+                f"[KG] 本体提议 open+={wi.get('created')} replay={ (result.get('replayed') or {}).get('replayed') }"
+            )
+        except Exception as err:
+            print(f"[KG] 语义提议跳过: {err}")
+
+    def _sync_temporal(self):
+        try:
+            from temporal_graph.service import sync_after_rebuild
+            result = sync_after_rebuild(self.store)
+            print(
+                f"[TKG] 时态同步 open={result.get('open_facts')} "
+                f"all={result.get('all_facts')} replayed={result.get('replayed_closed')}"
+            )
+        except Exception as err:
+            print(f"[TKG] 时态同步跳过: {err}")
 
     def _write_influence(self):
         nodes = self.store.list_nodes()
@@ -410,15 +542,7 @@ class GraphBuilder:
         edges = self.store.list_edges()
         communities = detect_communities(nodes, edges)
         for comm in communities:
-            gid = comm["id"] if str(comm["id"]).startswith("group_") else _slug(comm["name"], "group")
-            # 避免覆盖技能圈：若已存在同名则复用
-            existing = None
-            for g in self.store.list_nodes("InformalGroup"):
-                if g.get("name") == comm["name"]:
-                    existing = g
-                    break
-            nid = existing["id"] if existing else gid
-            self.store.upsert_node(node_template("InformalGroup", nid, comm["name"], theme=comm["name"]))
+            nid = self._ensure_entity("InformalGroup", comm["name"], theme=comm["name"])
             for m in comm.get("members") or []:
                 self._upsert_rel(m["id"], nid, REL_INFORMAL, affinity=0.65, strength=0.5)
         return communities
@@ -447,8 +571,8 @@ def _classify_event(summary):
     text = summary or ""
     extra = {"strength": 0.55, "last_update": _today()}
     if any(k in text for k in ("帮助", "指导", "带教", "培养", "教会")):
-        extra.update({"skill": "", "duration": 1, "strength": 0.7})
-        return REL_MENTOR, extra
+        extra.update({"skill": "", "duration": 1, "strength": 0.7, "action_type": "指导"})
+        return "TRAINING_ACTION", extra
     if any(k in text for k in ("冲突", "争议", "反对", "分歧", "投诉")):
         extra.update({"reason": text[:40], "frequency": 1, "impact": 70, "strength": 0.65})
         return REL_CONFLICT, extra

@@ -3,6 +3,8 @@ import {
   Radar, RefreshCw, Loader2, X, AlertTriangle, HelpCircle, Users,
 } from 'lucide-react'
 import { api } from '../api/client.js'
+import { beijingToday } from '../utils/beijingTime.js'
+import { RecordEventButton } from './EventRecorderContext.jsx'
 
 const TABS = [
   { id: 'today', label: '今日总览' },
@@ -60,9 +62,7 @@ const RISK_STATUS = {
 }
 
 function todayStr() {
-  const d = new Date()
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  return beijingToday()
 }
 
 function statusOf(score) {
@@ -320,6 +320,7 @@ export default function TeamSituationPanel({ members = [], onOpenProject }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <RecordEventButton context={{ source: 'team-situation' }} />
           <button
             onClick={() => setContextOpen(true)}
             className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white hover:bg-slate-50"

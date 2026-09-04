@@ -5,6 +5,8 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import { X, Clock, Users as UsersIcon, RefreshCw, Loader2, Sparkles } from 'lucide-react'
 import { api } from '../api/client.js'
+import { TIMEZONE, TZ_LABEL, toBeijingISO, beijingToday, beijingDateTimeLocal } from '../utils/beijingTime.js'
+import { RecordEventDraftButton, useEventRecorder } from './EventRecorderContext.jsx'
 
 const SCENE_COLORS = {
   '排期会议': '#ef4444',
@@ -28,6 +30,7 @@ export default function CalendarView({ members }) {
   const [reanalyzing, setReanalyzing] = useState(false)
   const [reanalyzeResult, setReanalyzeResult] = useState(null)
   const calendarRef = useRef(null)
+  const { openDraft } = useEventRecorder()
 
   const memberName = (id) => members.find((m) => m.id === id)?.name || id
 
@@ -41,7 +44,7 @@ export default function CalendarView({ members }) {
       const fcEvents = data.map((e) => ({
         id: String(e.id),
         title: e.scene || '团队事件',
-        start: e.event_time,
+        start: toBeijingISO(e.event_time),
         backgroundColor: getEventColor(e.scene),
         borderColor: getEventColor(e.scene),
         extendedProps: e,
@@ -84,11 +87,21 @@ export default function CalendarView({ members }) {
     }
   }
 
+  const handleDateClick = (info) => {
+    const date = String(info.dateStr || '').slice(0, 10)
+    if (!date) return
+    const eventTime = date === beijingToday() ? beijingDateTimeLocal() : `${date}T09:00`
+    openDraft({ source: 'calendar', event_time: eventTime })
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto fade-in">
-      <div className="mb-4">
-        <h2 className="text-xl font-bold text-slate-800">日历视图</h2>
-        <p className="text-sm text-slate-500 mt-1">按日/周/月浏览团队事件 · 点击事件卡片查看详情</p>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">日历视图</h2>
+          <p className="text-sm text-slate-500 mt-1">按日/周/月浏览团队事件 · {TZ_LABEL} · 点击空白日期或「记录事件」先写草稿；保存后会出现在日历，并生成待确认事实</p>
+        </div>
+        <RecordEventDraftButton context={{ source: 'calendar' }} />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -104,9 +117,11 @@ export default function CalendarView({ members }) {
               right: 'dayGridMonth,timeGridWeek,timeGridDay',
             }}
             locale="zh-cn"
+            timeZone={TIMEZONE}
             height="auto"
             events={events}
             eventClick={handleEventClick}
+            dateClick={handleDateClick}
             dayMaxEvents={3}
             eventDisplay="block"
             buttonText={{

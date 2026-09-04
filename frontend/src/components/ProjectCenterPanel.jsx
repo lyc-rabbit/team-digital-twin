@@ -3,6 +3,7 @@ import {
   FolderKanban, Plus, ArrowLeft, Check, Circle, Pause, X, Pencil,
 } from 'lucide-react'
 import { api } from '../api/client.js'
+import { RecordEventButton } from './EventRecorderContext.jsx'
 
 const TYPES = ['业务项目', '技术项目', 'AI项目', '平台项目', '探索项目', '优化项目', '其他']
 const PRIORITIES = ['P0', 'P1', 'P2', 'P3']
@@ -745,6 +746,8 @@ function ProjectDetail({ project, members, projects, onBack, onChange, onRefresh
         <MembersBlock project={project} members={members} onAct={act} />
       </section>
 
+      <ProjectGrowthBlock project={project} members={members} viewerId={viewerId} onToast={onToast} />
+
       {!(project.milestones || []).length && (
         <p className="text-xs text-slate-500 -mt-2">还没有里程碑。补上后可用完成比例计算进度。</p>
       )}
@@ -1325,5 +1328,88 @@ function AddRelation({ project, projects, onAct }) {
       </select>
       <button className="text-brand-600">保存</button>
     </form>
+  )
+}
+
+function ProjectGrowthBlock({ project, members, viewerId, onToast }) {
+  const people = useMemo(() => {
+    const ids = new Set([project.owner_id, ...(project.members || []).map((m) => m.user_id)])
+    return members.filter((m) => ids.has(m.id))
+  }, [project, members])
+  const [personId, setPersonId] = useState(viewerId || project.owner_id || people[0]?.id || '')
+  const [form, setForm] = useState({})
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!project.id || !personId) return
+    api.getProjectGrowth(project.id).then((d) => {
+      const item = (d.items || []).find((x) => x.person_id === personId) || {}
+      setForm(item)
+    }).catch(() => setForm({}))
+  }, [project.id, personId])
+
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+  const save = async () => {
+    setBusy(true)
+    try {
+      await api.saveProjectGrowth(project.id, personId, form)
+      onToast?.('成长证据已保存')
+    } catch (e) {
+      onToast?.(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const toEvent = async () => {
+    setBusy(true)
+    try {
+      await api.saveProjectGrowth(project.id, personId, form)
+      await api.projectGrowthToEvent(project.id, personId, viewerId || personId)
+      onToast?.('已生成成长事件')
+    } catch (e) {
+      onToast?.(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const fields = [
+    ['project_role', '项目角色'],
+    ['responsibility', '本人承担责任'],
+    ['key_decisions', '关键决策'],
+    ['risk_handling', '风险处理'],
+    ['resource_coordination', '资源协调'],
+    ['collaboration', '团队协作'],
+    ['newcomer_training', '新人培养'],
+    ['outcome', '最终结果'],
+    ['retrospective', '复盘'],
+  ]
+
+  return (
+    <section className="bg-white border rounded-xl p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">项目成长证据</h3>
+        <RecordEventButton context={{
+          source: 'project',
+          project_id: project.id,
+          person_id: personId,
+          event_type: 'project',
+          event_tag: 'project_risk',
+        }} />
+      </div>
+      <select className="border rounded-lg px-3 py-2 text-sm" value={personId} onChange={(e) => setPersonId(e.target.value)}>
+        {people.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+      </select>
+      {fields.map(([k, label]) => (
+        <label key={k} className="block text-xs text-slate-600">
+          {label}
+          <textarea className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" rows={2} value={form[k] || ''} onChange={(e) => set(k, e.target.value)} />
+        </label>
+      ))}
+      <div className="flex gap-2">
+        <button disabled={busy} onClick={save} className="text-sm bg-slate-800 text-white px-3 py-1.5 rounded-lg disabled:opacity-50">保存证据</button>
+        <button disabled={busy} onClick={toEvent} className="text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50">一键生成成长事件</button>
+      </div>
+    </section>
   )
 }

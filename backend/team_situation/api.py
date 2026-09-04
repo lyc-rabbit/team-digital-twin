@@ -108,8 +108,8 @@ def data_snapshot():
 
 @router.post("/context")
 def add_context(req: ContextRequest):
-    from datetime import datetime
-    day = (req.context_date or datetime.now().strftime("%Y-%m-%d"))[:10]
+    from timeutil import today as beijing_today
+    day = (req.context_date or beijing_today())[:10]
     allowed = {"note", "project", "member", "risk", "management", "今日特殊事项", "项目变化", "人员变化", "风险", "管理层信息"}
     ctype = req.context_type if req.context_type in allowed else req.context_type
     if not (req.content or "").strip():

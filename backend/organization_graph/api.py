@@ -16,6 +16,13 @@ class ExtractRequest(BaseModel):
     source_type: Optional[str] = "document"
 
 
+class ApplyExtractRequest(BaseModel):
+    text: Optional[str] = ""
+    source_type: Optional[str] = "document"
+    entities: Optional[list] = None
+    relations: Optional[list] = None
+
+
 class EventUpdateRequest(BaseModel):
     name: str
     time: Optional[str] = None
@@ -31,10 +38,18 @@ def graph_status():
 def get_graph(
     types: Optional[str] = Query(None, description="逗号分隔节点类型"),
     relations: Optional[str] = Query(None, description="逗号分隔关系类型"),
+    includeMerged: bool = Query(False),
+    asOf: Optional[str] = Query(None, description="YYYY-MM-DD 历史快照"),
+    includeHistory: bool = Query(False),
 ):
     node_types = [x.strip() for x in types.split(",") if x.strip()] if types else None
     rels = [x.strip() for x in relations.split(",") if x.strip()] if relations else None
-    return service.get_graph(node_types, rels)
+    return service.get_graph(
+        node_types, rels,
+        include_merged=includeMerged,
+        as_of=asOf,
+        include_history=includeHistory,
+    )
 
 
 @router.post("/api/v1/graph/rebuild")
@@ -59,8 +74,12 @@ def leadership_profile(person_id: str):
 
 
 @router.get("/api/v1/influence/ranking")
-def influence_ranking():
-    return service.influence_ranking()
+def influence_ranking(
+    asOf: Optional[str] = Query(None),
+    dateFrom: Optional[str] = Query(None),
+    dateTo: Optional[str] = Query(None),
+):
+    return service.influence_ranking(as_of=asOf, date_from=dateFrom, date_to=dateTo)
 
 
 @router.get("/api/v1/community")
@@ -77,7 +96,18 @@ def risk():
 def extract(req: ExtractRequest):
     if not req.text or not req.text.strip():
         raise HTTPException(status_code=400, detail="文本不能为空")
-    return service.extract_and_apply(req.text.strip(), req.source_type or "document")
+    return service.extract_preview(req.text.strip(), req.source_type or "document")
+
+
+@router.post("/api/v1/extract/apply")
+def extract_apply(req: ApplyExtractRequest):
+    if not (req.relations or req.entities):
+        raise HTTPException(status_code=400, detail="没有可写入的抽取结果")
+    return service.apply_confirmed_extraction(
+        {"entities": req.entities or [], "relations": req.relations or []},
+        text=req.text or "",
+        source_type=req.source_type or "document",
+    )
 
 
 @router.get("/api/v1/extract/history")

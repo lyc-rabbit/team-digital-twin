@@ -1,8 +1,9 @@
 """规则 / 统计 / 变化检测。LLM 只解释，不发明风险。团队态势只读取项目中心事实。"""
 
 from collections import defaultdict
-from datetime import datetime
 import uuid
+
+from timeutil import today as beijing_today
 
 
 CHANGE_LABELS = {
@@ -69,7 +70,7 @@ def detect(member_rows, project_rows, snapshot, health):
     risks = []
     questions = []
     attention = []
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = beijing_today()
     seq = 1
 
     def risk_id():

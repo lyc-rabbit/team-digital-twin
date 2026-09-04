@@ -9,6 +9,12 @@ const TYPE_COLORS = {
   Knowledge: '#ec4899',
   Event: '#64748b',
   InformalGroup: '#14b8a6',
+  Achievement: '#f97316',
+  Contribution: '#a855f7',
+  TrainingAction: '#22c55e',
+  CapabilityEvidence: '#eab308',
+  ProjectStage: '#fb923c',
+  Capability: '#6366f1',
 }
 
 const REL_COLORS = {
@@ -20,11 +26,29 @@ const REL_COLORS = {
   CONTROL_RESOURCE: '#8b5cf6',
   INFORMAL_MEMBER: '#14b8a6',
   OWNER: '#6366f1',
+  ORG_RESPONSIBILITY: '#6366f1',
+  EXECUTION_RESPONSIBILITY: '#f59e0b',
+  MANAGEMENT_RESPONSIBILITY: '#8b5cf6',
+  REPORTING_RESPONSIBILITY: '#94a3b8',
+  ACHIEVEMENT_OWNERSHIP: '#c084fc',
+  MADE_CONTRIBUTION: '#a855f7',
+  CONTRIBUTES_TO: '#7c3aed',
+  PERFORMED_TRAINING: '#22c55e',
+  TRAINING_TARGET: '#16a34a',
   HAS_ROLE: '#cbd5e1',
   BELONGS_TO: '#cbd5e1',
   WORKS_ON: '#f59e0b',
   HAS_KNOWLEDGE: '#ec4899',
   INVOLVED_IN: '#94a3b8',
+  HAS_SUB_RESOURCE: '#059669',
+  HAS_RESOURCE: '#34d399',
+  IS_A: '#0d9488',
+  PART_OF: '#14b8a6',
+  USES: '#2563eb',
+  DEPENDS_ON: '#1d4ed8',
+  CONTRIBUTE_TO: '#7c3aed',
+  CONTROL_KEY_RESOURCE: '#9333ea',
+  MANAGES: '#6d28d9',
 }
 
 function nodeRadius(node) {

@@ -3,6 +3,8 @@
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
+from timeutil import today_minus_days
+
 from .collectors import FOCUS_LABELS, classify_focus
 from . import repository as repo
 
@@ -32,7 +34,7 @@ def workload_band(score):
 
 
 def _in_range(reports, days):
-    start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    start = today_minus_days(days)
     return [r for r in reports if (r.get("report_date") or "") >= start]
 
 
@@ -48,7 +50,7 @@ def compute_member_metrics(member, snapshot):
     mid = member["id"]
     reports = [r for r in snapshot["daily_reports"] if r.get("member_id") == mid]
     r30 = _in_range(reports, 30)
-    start7 = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    start7 = today_minus_days(7)
     r7 = [r for r in r30 if (r.get("report_date") or "") >= start7]
     r_old = [r for r in r30 if (r.get("report_date") or "") < start7]
     focus7 = focus_distribution(r7)

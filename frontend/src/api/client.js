@@ -71,6 +71,18 @@ export const api = {
     return request(`/events?${q}`)
   },
   getEventDetail: (id) => request(`/events/${id}`),
+  getEventChain: (id) => request(`/events/${id}/chain`),
+  getEventTaxonomy: () => request('/events/taxonomy'),
+  getEventTemplate: (eventType, eventTag) => {
+    const q = new URLSearchParams()
+    if (eventType) q.set('event_type', eventType)
+    if (eventTag) q.set('event_tag', eventTag)
+    return request(`/events/template?${q}`)
+  },
+  suggestEventTags: (data) => request('/events/suggest-tags', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
   logEvent: (data) => request('/events/log', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -101,6 +113,84 @@ export const api = {
     if (memberPair) q.set('member_pair', memberPair)
     return request(`/relationships/history?${q}`)
   },
+  getRelationshipPair: (fromId, toId) => request(`/relationships/pair?from_id=${encodeURIComponent(fromId)}&to_id=${encodeURIComponent(toId)}`),
+  getRelationshipScore: (fromId, toId, dimension = 'trust') => request(
+    `/relationships/score?from_id=${encodeURIComponent(fromId)}&to_id=${encodeURIComponent(toId)}&dimension=${encodeURIComponent(dimension)}`,
+  ),
+  getRelationshipEvidence: (id) => request(`/relationships/evidence/${id}`),
+
+  getGrowthStandards: (roleId) => request(`/growth/standards/${encodeURIComponent(roleId)}`),
+  listCadreProfiles: () => request('/growth/cadre'),
+  getCadreProfile: (id) => request(`/growth/cadre/${encodeURIComponent(id)}`),
+  getUpwardArchive: (id, managerId) => request(
+    `/growth/upward/${encodeURIComponent(id)}${managerId ? `?manager_id=${encodeURIComponent(managerId)}` : ''}`,
+  ),
+  getUpwardFacts: (id, managerId, projectId) => {
+    const q = new URLSearchParams()
+    if (managerId) q.set('manager_id', managerId)
+    if (projectId) q.set('project_id', projectId)
+    const qs = q.toString()
+    return request(`/growth/upward/${encodeURIComponent(id)}/facts${qs ? `?${qs}` : ''}`)
+  },
+  generateUpwardReport: (id, data) => request(`/growth/upward/${encodeURIComponent(id)}/report`, {
+    method: 'POST',
+    body: JSON.stringify(data || {}),
+  }),
+  getTwinBootstrap: () => request('/twin/bootstrap'),
+  runTwinSimulate: (data) => request('/twin/simulate', { method: 'POST', body: JSON.stringify(data || {}) }),
+  listTwinSimulations: () => request('/twin/simulations'),
+  getTwinSimulation: (id) => request(`/twin/simulations/${encodeURIComponent(id)}`),
+  listTwinPredictions: (personId, kind) => {
+    const q = new URLSearchParams()
+    if (personId) q.set('person_id', personId)
+    if (kind) q.set('kind', kind)
+    const qs = q.toString()
+    return request(`/twin/predictions${qs ? `?${qs}` : ''}`)
+  },
+  recordTwinActual: (id, data) => request(`/twin/predictions/${encodeURIComponent(id)}/actual`, {
+    method: 'POST',
+    body: JSON.stringify(data || {}),
+  }),
+  getTwinGrowth: (id, days = 90) => request(`/twin/growth/${encodeURIComponent(id)}?days=${days}`),
+  getTwinPath: (id) => request(`/twin/path/${encodeURIComponent(id)}`),
+  runTwinMentoring: (data) => request('/twin/mentoring', { method: 'POST', body: JSON.stringify(data || {}) }),
+  runTwinMatch: (data) => request('/twin/match', { method: 'POST', body: JSON.stringify(data || {}) }),
+  createTwinPlan: (data) => request('/twin/training/plan', { method: 'POST', body: JSON.stringify(data || {}) }),
+  optimizeTwinPlan: (id) => request(`/twin/training/optimize/${encodeURIComponent(id)}`),
+  compareTwinSchemes: (data) => request('/twin/training/compare', { method: 'POST', body: JSON.stringify(data || {}) }),
+  simulateTwinCohort: (data) => request('/twin/training/cohort', { method: 'POST', body: JSON.stringify(data || {}) }),
+  expandTwinOrg: (data) => request('/twin/org/expand', { method: 'POST', body: JSON.stringify(data || {}) }),
+  getTwinPipeline: () => request('/twin/org/pipeline'),
+  getTwinStructures: () => request('/twin/org/structures'),
+  getTwinDeparture: (id) => request(`/twin/org/departure/${encodeURIComponent(id)}`),
+  getTwinKnowledge: (id) => request(`/twin/org/knowledge/${encodeURIComponent(id)}`),
+  getTwinInformal: () => request('/twin/org/informal'),
+  predictTwinConflict: (data) => request('/twin/org/conflict', { method: 'POST', body: JSON.stringify(data || {}) }),
+  getTwinAuth: (id, projectId) => request(
+    `/twin/leadership/auth/${encodeURIComponent(id)}${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`,
+  ),
+  getTwinPolicies: () => request('/twin/policies'),
+  saveTwinPolicy: (data) => request('/twin/policies', { method: 'POST', body: JSON.stringify(data || {}) }),
+  getTwinPolicy: (id) => request(`/twin/policies/${encodeURIComponent(id)}`),
+  addTwinPolicyOutcome: (id, data) => request(`/twin/policies/${encodeURIComponent(id)}/outcome`, {
+    method: 'POST',
+    body: JSON.stringify(data || {}),
+  }),
+  getPromotionGrowth: (id) => request(`/growth/promotion/${encodeURIComponent(id)}`),
+  getNewcomerStages: (id) => request(`/newcomers/${encodeURIComponent(id)}/stages`),
+  saveNewcomerStage: (id, stageId, data) => request(`/newcomers/${encodeURIComponent(id)}/stages/${encodeURIComponent(stageId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  getProjectGrowth: (projectId) => request(`/projects/${encodeURIComponent(projectId)}/growth-evidence`),
+  saveProjectGrowth: (projectId, personId, data) => request(`/projects/${encodeURIComponent(projectId)}/growth-evidence/${encodeURIComponent(personId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  projectGrowthToEvent: (projectId, personId, createdBy) => request(
+    `/projects/${encodeURIComponent(projectId)}/growth-evidence/${encodeURIComponent(personId)}/to-event${createdBy ? `?created_by=${encodeURIComponent(createdBy)}` : ''}`,
+    { method: 'POST' },
+  ),
 
   // 状态
   getStates: (atTime) => {
@@ -223,6 +313,19 @@ export const api = {
     return request(`/daily-report?${q}`)
   },
   getDailyReportHistory: (id) => request(`/daily-report/${id}/history`),
+  getDailyReportStyles: () => request('/daily-report/styles'),
+  saveDailyReportStyle: (styleId, data) => request(`/daily-report/styles/${styleId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  rewriteDailyReport: (data) => request('/daily-report/rewrite', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  ingestDailyReport: (data) => request('/daily-report/ingest', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
   getReportMemberStats: (days = 30) => request(`/report/statistics/member?days=${days}`),
 
   // 组织影响力图谱 OIG
@@ -230,6 +333,8 @@ export const api = {
     const q = new URLSearchParams()
     if (params.types) q.set('types', params.types)
     if (params.relations) q.set('relations', params.relations)
+    if (params.asOf) q.set('asOf', params.asOf)
+    if (params.includeHistory) q.set('includeHistory', 'true')
     const qs = q.toString()
     return request(`/v1/graph${qs ? `?${qs}` : ''}`)
   },
@@ -237,14 +342,193 @@ export const api = {
   rebuildOigGraph: () => request('/v1/graph/rebuild', { method: 'POST' }),
   getOigPersonNetwork: (id) => request(`/v1/person/${encodeURIComponent(id)}/network`),
   getOigLeadership: (id) => request(`/v1/person/${encodeURIComponent(id)}/leadership-profile`),
-  getOigInfluenceRanking: () => request('/v1/influence/ranking'),
+  getOigInfluenceRanking: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.asOf) q.set('asOf', params.asOf)
+    if (params.dateFrom) q.set('dateFrom', params.dateFrom)
+    if (params.dateTo) q.set('dateTo', params.dateTo)
+    const qs = q.toString()
+    return request(`/v1/influence/ranking${qs ? `?${qs}` : ''}`)
+  },
   getOigCommunity: () => request('/v1/community'),
   getOigRisk: () => request('/v1/risk'),
   extractOig: (text, sourceType = 'document') => request('/v1/extract', {
     method: 'POST',
     body: JSON.stringify({ text, source_type: sourceType }),
   }),
+  applyOigExtract: (data) => request('/v1/extract/apply', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
   getOigExtractHistory: (limit = 10) => request(`/v1/extract/history?limit=${limit}`),
+
+  // 实体治理 / 统一实体层
+  getEntityGovernanceOverview: () => request('/entity-governance/overview'),
+  detectEntityDuplicates: (data = {}) => request('/entity-governance/detect', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getEntityDetectStatus: () => request('/entity-governance/detect/status'),
+  listEntityCandidates: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.status) q.set('status', params.status)
+    if (params.entityType) q.set('entityType', params.entityType)
+    if (params.minScore != null) q.set('minScore', params.minScore)
+    if (params.page) q.set('page', params.page)
+    if (params.pageSize) q.set('pageSize', params.pageSize)
+    return request(`/entity-governance/candidates?${q}`)
+  },
+  getEntityCandidate: (id) => request(`/entity-governance/candidates/${encodeURIComponent(id)}`),
+  mergeEntities: (data) => request('/entity-governance/merge', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  rejectEntityCandidate: (data) => request('/entity-governance/reject', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  skipEntityCandidate: (data) => request('/entity-governance/skip', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  unmergeEntities: (mergeId) => request(`/entity-governance/unmerge/${encodeURIComponent(mergeId)}`, {
+    method: 'POST',
+  }),
+  listEntityMerges: (includeUnmerged = true) => request(`/entity-governance/merges?includeUnmerged=${includeUnmerged}`),
+  getEntityMerge: (id) => request(`/entity-governance/merges/${encodeURIComponent(id)}`),
+  addEntityAlias: (data) => request('/entity-governance/aliases', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  resolveEntity: (data) => request('/entity-resolution/resolve', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  getKgOverview: () => request('/knowledge-governance/overview'),
+  getKgAnalyze: () => request('/knowledge-governance/analyze'),
+  getKgOntologyDraft: () => request('/knowledge-governance/ontology/draft'),
+  applyKgOntology: () => request('/knowledge-governance/ontology/apply', { method: 'POST' }),
+  getKgTypes: () => request('/knowledge-governance/ontology/types'),
+  getKgSchema: () => request('/knowledge-governance/ontology/schema'),
+  saveKgTypeProperties: (id, properties) => request(
+    `/knowledge-governance/ontology/types/${encodeURIComponent(id)}/properties`,
+    { method: 'PUT', body: JSON.stringify({ properties }) },
+  ),
+  getKgRelations: () => request('/knowledge-governance/ontology/relations'),
+  saveKgRelation: (data) => request('/knowledge-governance/ontology/relations', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  deleteKgRelation: (id) => request(`/knowledge-governance/ontology/relations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }),
+  getKgConstraints: () => request('/knowledge-governance/ontology/constraints'),
+  saveKgConstraint: (data) => request('/knowledge-governance/ontology/constraints', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  deleteKgConstraint: (id) => request(`/knowledge-governance/ontology/constraints/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }),
+  createKgType: (data) => request('/knowledge-governance/ontology/types', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  updateKgType: (id, data) => request(`/knowledge-governance/ontology/types/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  mergeKgTypes: (data) => request('/knowledge-governance/ontology/types/merge', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  deleteKgType: (id) => request(`/knowledge-governance/ontology/types/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }),
+  getKgRules: () => request('/knowledge-governance/rules'),
+  setKgRuleStatus: (id, status) => request(`/knowledge-governance/rules/${encodeURIComponent(id)}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  }),
+  enhanceKg: () => request('/knowledge-governance/analyze/publish', { method: 'POST' }),
+  publishKgAnalyze: (force = false) => request(
+    `/knowledge-governance/analyze/publish?force=${force ? 'true' : 'false'}`,
+    { method: 'POST' },
+  ),
+  applyKgConfirmed: () => request('/knowledge-governance/apply-confirmed', { method: 'POST' }),
+  getKgWorkItems: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.set(k, v)
+    })
+    return request(`/knowledge-governance/work-items?${q}`)
+  },
+  patchKgWorkItem: (id, proposed) => request(`/knowledge-governance/work-items/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ proposed }),
+  }),
+  acceptKgWorkItem: (id, proposed) => request(`/knowledge-governance/work-items/${encodeURIComponent(id)}/accept`, {
+    method: 'POST',
+    body: JSON.stringify(proposed ? { proposed } : {}),
+  }),
+  rejectKgWorkItem: (id) => request(`/knowledge-governance/work-items/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+  }),
+  deferKgWorkItem: (id) => request(`/knowledge-governance/work-items/${encodeURIComponent(id)}/defer`, {
+    method: 'POST',
+  }),
+  classifyKgInstance: (nodeId, extra = {}) => request('/knowledge-governance/work-items/classify', {
+    method: 'POST',
+    body: JSON.stringify({ nodeId, typeId: extra.typeId, ontologyType: extra.ontologyType }),
+  }),
+  getKgInstance: (nodeId) => request(`/knowledge-governance/instances/${encodeURIComponent(nodeId)}`),
+  retireKgInstance: (nodeId) => request(`/knowledge-governance/instances/${encodeURIComponent(nodeId)}`, {
+    method: 'DELETE',
+  }),
+  getKgInferred: (limit = 80) => request(`/knowledge-governance/inferred?limit=${limit}`),
+  getKgSuggestions: (status = 'open') => request(`/knowledge-governance/work-items?status=${status}`),
+  acceptKgSuggestion: (id, proposed) => request(`/knowledge-governance/work-items/${encodeURIComponent(id)}/accept`, {
+    method: 'POST',
+    body: JSON.stringify(proposed ? { proposed } : {}),
+  }),
+  ignoreKgSuggestion: (id) => request(`/knowledge-governance/work-items/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+  }),
+  getKgRevisions: () => request('/knowledge-governance/revisions'),
+  rollbackKg: (revisionId) => request('/knowledge-governance/rollback', {
+    method: 'POST',
+    body: JSON.stringify({ revisionId }),
+  }),
+
+  getTemporalOverview: () => request('/temporal/overview'),
+  getTemporalSnapshot: (asOf) => request(`/temporal/snapshot?asOf=${encodeURIComponent(asOf)}`),
+  getTemporalFacts: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.set(k, v)
+    })
+    return request(`/temporal/facts?${q}`)
+  },
+  getTemporalRange: (objectId, dateFrom, dateTo, predicates) => {
+    const q = new URLSearchParams({ objectId, dateFrom, dateTo })
+    if (predicates) q.set('predicates', predicates)
+    return request(`/temporal/range?${q}`)
+  },
+  getPersonTimeline: (id) => request(`/temporal/person/${encodeURIComponent(id)}/timeline`),
+  getProjectTimeline: (id) => request(`/temporal/project/${encodeURIComponent(id)}/timeline`),
+  applyTemporalEvent: (data) => request('/temporal/events', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  listTemporalEvents: (limit = 40) => request(`/temporal/events?limit=${limit}`),
+  getTemporalInfluence: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.asOf) q.set('asOf', params.asOf)
+    if (params.dateFrom) q.set('dateFrom', params.dateFrom)
+    if (params.dateTo) q.set('dateTo', params.dateTo)
+    return request(`/temporal/influence?${q}`)
+  },
 
   // 晋升推演
   getPromotionTemplates: () => request('/promotion/templates'),
@@ -410,4 +694,40 @@ export const api = {
     if (start.status !== 'running') return start
     return api.watchSituationAnalyze()
   },
+
+  getFactOverview: () => request('/fact-governance/overview'),
+  listFacts: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.status) q.set('status', params.status)
+    if (params.q) q.set('q', params.q)
+    if (params.page) q.set('page', params.page)
+    if (params.pageSize) q.set('pageSize', params.pageSize)
+    return request(`/fact-governance/facts?${q}`)
+  },
+  createFact: (data) => request('/fact-governance/facts', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getFact: (id) => request(`/fact-governance/facts/${encodeURIComponent(id)}`),
+  confirmFact: (id) => request(`/fact-governance/facts/${encodeURIComponent(id)}/confirm`, { method: 'POST' }),
+  rejectFact: (id, reason = '') => request(`/fact-governance/facts/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  }),
+  getFactImpact: (id) => request(`/fact-governance/facts/${encodeURIComponent(id)}/impact`),
+  deleteFact: (id, data = {}) => request(`/fact-governance/facts/${encodeURIComponent(id)}/delete`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  supersedeFact: (id, data) => request(`/fact-governance/facts/${encodeURIComponent(id)}/supersede`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  extractFacts: (data) => request('/fact-governance/extract', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  listFactJobs: () => request('/fact-governance/jobs'),
+  listFactConflicts: () => request('/fact-governance/conflicts'),
+  listFactRebuildTasks: () => request('/fact-governance/rebuild-tasks'),
 }

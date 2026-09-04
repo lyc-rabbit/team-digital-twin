@@ -11,7 +11,7 @@
 import sqlite3
 import json
 import os
-from datetime import datetime
+from timeutil import now_iso
 from contextlib import contextmanager
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "team_twin.db")
@@ -51,7 +51,7 @@ def init_db():
                 persona     TEXT NOT NULL,
                 decision_style TEXT,
                 weaknesses  TEXT,
-                created_at  TEXT DEFAULT (datetime('now'))
+                created_at  TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -66,7 +66,7 @@ def init_db():
                 parsed_task     TEXT,             -- 事务影响
                 is_hypothetical INTEGER DEFAULT 0, -- 1=假设性事件（时间穿梭推演）
                 confidence      REAL DEFAULT 0.8,
-                created_at      TEXT DEFAULT (datetime('now'))
+                created_at      TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -80,7 +80,7 @@ def init_db():
                 trust_delta     INTEGER DEFAULT 0,   -- 信任度变化 (-20~+20)
                 sentiment_delta INTEGER DEFAULT 0,    -- 情绪变化 (-20~+20)
                 tag             TEXT,                 -- 关系标签
-                created_at      TEXT DEFAULT (datetime('now'))
+                created_at      TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -92,7 +92,7 @@ def init_db():
                 member_id   TEXT NOT NULL,
                 emotion     TEXT NOT NULL,
                 intensity   INTEGER DEFAULT 5,  -- 1~10
-                created_at  TEXT DEFAULT (datetime('now'))
+                created_at  TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -103,7 +103,7 @@ def init_db():
                 mode        TEXT NOT NULL,   -- 'query' | 'simulate'
                 user_input  TEXT NOT NULL,
                 ai_response TEXT NOT NULL,
-                created_at  TEXT DEFAULT (datetime('now'))
+                created_at  TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -122,8 +122,8 @@ def init_db():
                 responsibilities TEXT,
                 required_skills  TEXT,
                 status           TEXT DEFAULT 'active',
-                created_at       TEXT DEFAULT (datetime('now')),
-                updated_at       TEXT DEFAULT (datetime('now'))
+                created_at       TEXT DEFAULT (datetime('now','+8 hours')),
+                updated_at       TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -136,8 +136,8 @@ def init_db():
                 match_score      REAL NOT NULL DEFAULT 0,
                 confidence       REAL DEFAULT 0.8,
                 analysis_result  TEXT,
-                created_at       TEXT DEFAULT (datetime('now')),
-                updated_at       TEXT DEFAULT (datetime('now')),
+                created_at       TEXT DEFAULT (datetime('now','+8 hours')),
+                updated_at       TEXT DEFAULT (datetime('now','+8 hours')),
                 UNIQUE(role_id, employee_id)
             )
         """)
@@ -152,7 +152,7 @@ def init_db():
                 score            REAL NOT NULL DEFAULT 0,
                 reason           TEXT,
                 analysis_version TEXT,
-                created_at       TEXT DEFAULT (datetime('now'))
+                created_at       TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -169,8 +169,8 @@ def init_db():
                 content_hash TEXT NOT NULL,
                 version      INTEGER NOT NULL DEFAULT 1,
                 status       TEXT DEFAULT 'active',
-                created_at   TEXT DEFAULT (datetime('now')),
-                updated_at   TEXT DEFAULT (datetime('now')),
+                created_at   TEXT DEFAULT (datetime('now','+8 hours')),
+                updated_at   TEXT DEFAULT (datetime('now','+8 hours')),
                 UNIQUE(report_date, member_id)
             )
         """)
@@ -184,7 +184,7 @@ def init_db():
                 new_content  TEXT,
                 change_type  TEXT NOT NULL,
                 operator     TEXT,
-                created_at   TEXT DEFAULT (datetime('now'))
+                created_at   TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -201,8 +201,8 @@ def init_db():
                 status        TEXT DEFAULT 'pending',
                 message       TEXT,
                 result_json   TEXT,
-                created_at    TEXT DEFAULT (datetime('now')),
-                updated_at    TEXT DEFAULT (datetime('now'))
+                created_at    TEXT DEFAULT (datetime('now','+8 hours')),
+                updated_at    TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
 
@@ -219,11 +219,24 @@ def init_db():
                 embedding_id    TEXT,
                 analysis_json   TEXT,
                 version         INTEGER DEFAULT 1,
-                created_at      TEXT DEFAULT (datetime('now')),
-                updated_at      TEXT DEFAULT (datetime('now')),
+                created_at      TEXT DEFAULT (datetime('now','+8 hours')),
+                updated_at      TEXT DEFAULT (datetime('now','+8 hours')),
                 UNIQUE(report_id)
             )
         """)
+
+        # 12b. 日报改写风格提示词（可编辑）
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS daily_report_style_prompt (
+                id           TEXT PRIMARY KEY,
+                label        TEXT NOT NULL,
+                prompt       TEXT NOT NULL,
+                sort_order   INTEGER NOT NULL DEFAULT 0,
+                created_at   TEXT DEFAULT (datetime('now','+8 hours')),
+                updated_at   TEXT DEFAULT (datetime('now','+8 hours'))
+            )
+        """)
+        seed_daily_report_style_prompts(c)
 
         c.execute("CREATE INDEX IF NOT EXISTS idx_daily_report_date ON daily_report(report_date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_daily_report_member ON daily_report(member_id)")
@@ -247,8 +260,8 @@ def init_db():
                 compete_in_ranking INTEGER DEFAULT 0,
                 status             TEXT DEFAULT 'active',
                 progress           REAL DEFAULT 0,
-                created_at         TEXT DEFAULT (datetime('now')),
-                updated_at         TEXT DEFAULT (datetime('now'))
+                created_at         TEXT DEFAULT (datetime('now','+8 hours')),
+                updated_at         TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
         c.execute("""
@@ -270,7 +283,7 @@ def init_db():
                 help_requested   INTEGER DEFAULT 0,
                 capability_ids   TEXT,
                 sort_order       INTEGER DEFAULT 0,
-                created_at       TEXT DEFAULT (datetime('now'))
+                created_at       TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
         c.execute("""
@@ -283,7 +296,7 @@ def init_db():
                 evidence_type    TEXT,
                 evidence_content TEXT,
                 score            REAL DEFAULT 0,
-                created_at       TEXT DEFAULT (datetime('now'))
+                created_at       TEXT DEFAULT (datetime('now','+8 hours'))
             )
         """)
         c.execute("""
@@ -294,7 +307,7 @@ def init_db():
                 reason              TEXT,
                 recommended_action  TEXT,
                 status              TEXT DEFAULT 'open',
-                created_at          TEXT DEFAULT (datetime('now')),
+                created_at          TEXT DEFAULT (datetime('now','+8 hours')),
                 resolved_at         TEXT
             )
         """)
@@ -606,11 +619,64 @@ def init_db():
         if c.fetchone()["cnt"] == 0:
             seed_ai_native_roles(c)
 
+    from growth.repository import init_tables as init_growth_tables
+    init_growth_tables()
+    from twin.repository import init_tables as init_twin_tables
+    init_twin_tables()
+
 
 def _ensure_column(cursor, table, name, col_ddl):
     cols = [row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()]
     if name not in cols:
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {col_ddl}")
+
+
+DAILY_REPORT_STYLE_SEEDS = [
+    {
+        "id": "concise",
+        "label": "精简干练版",
+        "sort_order": 1,
+        "prompt": """你是专业的工作日报改写助手。请把用户提供的工作描述改写成「精简干练」风格的日报正文。
+要求：
+- 用短句、动词开头，去掉口语、语气词和冗余修饰
+- 每条一事，突出动作、对象与结果；能合并的合并
+- 不编造未提及的事实、数据、客户或成果
+- 只输出改写后的日报正文，不要标题、解释或前后缀""",
+    },
+    {
+        "id": "plain",
+        "label": "平实陈述版",
+        "sort_order": 2,
+        "prompt": """你是专业的工作日报改写助手。请把用户提供的工作描述改写成「平实陈述」风格的日报正文。
+要求：
+- 用客观、中性的陈述句，如实记录做了什么、进展到哪、下一步是什么（仅当原文有提及）
+- 不夸张、不营销化，不省略关键事实
+- 不编造未提及的事实、数据、客户或成果
+- 只输出改写后的日报正文，不要标题、解释或前后缀""",
+    },
+    {
+        "id": "value",
+        "label": "突出价值版",
+        "sort_order": 3,
+        "prompt": """你是专业的工作日报改写助手。请把用户提供的工作描述改写成「突出价值」风格的日报正文。
+要求：
+- 在不编造事实的前提下，突出工作的目标、产出和对业务/团队的价值
+- 结构建议：做了什么 → 产出/进展 → 价值或影响（仅基于原文可合理推断的内容）
+- 禁止虚构数据、客户反馈或未提及的成果
+- 只输出改写后的日报正文，不要标题、解释或前后缀""",
+    },
+]
+
+
+def seed_daily_report_style_prompts(c):
+    """仅补齐缺失风格，不覆盖用户已保存的提示词。"""
+    for item in DAILY_REPORT_STYLE_SEEDS:
+        c.execute(
+            """INSERT OR IGNORE INTO daily_report_style_prompt
+               (id, label, prompt, sort_order)
+               VALUES (?, ?, ?, ?)""",
+            (item["id"], item["label"], item["prompt"].strip(), item["sort_order"]),
+        )
 
 
 def seed_members(c):
@@ -701,7 +767,7 @@ AI_NATIVE_ROLE_SEEDS = [
 
 def seed_ai_native_roles(c):
     """预置 AI Native 内置角色模型"""
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     for role in AI_NATIVE_ROLE_SEEDS:
         c.execute(
             """INSERT INTO ai_native_roles
@@ -834,9 +900,25 @@ def get_event_detail(event_id):
         states = conn.execute(
             "SELECT * FROM member_state_logs WHERE event_id = ?", (event_id,)
         ).fetchall()
-        event["emotions"] = [dict(r) for r in states]
+        event["emotions"] = [dict(s) for s in states]
 
-        return event
+    try:
+        from growth.repository import hydrate_event, list_relationship_evidence, list_capability_evidence
+        extra = hydrate_event(event)
+        if extra:
+            event.update({k: extra[k] for k in (
+                "subjects", "related_persons", "extra_fields", "event_type", "event_tag",
+                "background", "facts", "expected", "difference", "actions", "result",
+                "evidence", "judgement", "created_by", "source", "related_project_id",
+                "related_stage_id", "related_role_id", "related_newcomer_id", "event_id",
+            ) if k in extra})
+        event["relationship_evidence"] = list_relationship_evidence(event_id=event_id)
+        event["capability_evidence"] = list_capability_evidence(event_id=event_id)
+    except Exception:
+        event.setdefault("relationship_evidence", [])
+        event.setdefault("capability_evidence", [])
+
+    return event
 
 
 def insert_event(event_time, involved_members, raw_summary, scene=None,
@@ -846,8 +928,8 @@ def insert_event(event_time, involved_members, raw_summary, scene=None,
         c = conn.cursor()
         c.execute(
             """INSERT INTO team_events
-               (event_time, involved_members, raw_summary, scene, parsed_task, confidence, is_hypothetical)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (event_time, involved_members, raw_summary, scene, parsed_task, confidence, is_hypothetical, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_time,
                 json.dumps(involved_members),
@@ -856,6 +938,7 @@ def insert_event(event_time, involved_members, raw_summary, scene=None,
                 parsed_task,
                 confidence,
                 is_hypothetical,
+                now_iso(),
             ),
         )
         return c.lastrowid
@@ -865,18 +948,18 @@ def insert_relationship_log(event_id, from_id, to_id, trust_delta, sentiment_del
     with get_db() as conn:
         conn.execute(
             """INSERT INTO relationship_logs
-               (event_id, from_member_id, to_member_id, trust_delta, sentiment_delta, tag)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (event_id, from_id, to_id, trust_delta, sentiment_delta, tag),
+               (event_id, from_member_id, to_member_id, trust_delta, sentiment_delta, tag, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (event_id, from_id, to_id, trust_delta, sentiment_delta, tag, now_iso()),
         )
 
 
 def insert_emotion_log(event_id, member_id, emotion, intensity=5):
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO member_state_logs (event_id, member_id, emotion, intensity)
-               VALUES (?, ?, ?, ?)""",
-            (event_id, member_id, emotion, intensity),
+            """INSERT INTO member_state_logs (event_id, member_id, emotion, intensity, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (event_id, member_id, emotion, intensity, now_iso()),
         )
 
 
@@ -956,8 +1039,8 @@ def get_emotion_logs(date_to=None, include_hypothetical=True):
 def save_chat_history(mode, user_input, ai_response):
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO chat_history (mode, user_input, ai_response) VALUES (?, ?, ?)",
-            (mode, user_input, ai_response),
+            "INSERT INTO chat_history (mode, user_input, ai_response, created_at) VALUES (?, ?, ?, ?)",
+            (mode, user_input, ai_response, now_iso()),
         )
 
 
@@ -1035,7 +1118,7 @@ def _hydrate_ai_role(item):
 def update_ai_native_evaluation_scope(role_id, scope_type, config=None,
                                       minimum_competition_level=None,
                                       minimum_match_score=None):
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     fields = ["evaluation_scope_type = ?", "evaluation_scope_config = ?", "updated_at = ?"]
     params = [
         (scope_type or "TEAM").upper(),
@@ -1107,7 +1190,7 @@ def clear_ai_role_analysis():
 
 
 def upsert_ai_role_assignment(role_id, employee_id, match_score, confidence=0.8, analysis_result=None):
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     analysis_json = json.dumps(analysis_result or {}, ensure_ascii=False)
     with get_db() as conn:
         conn.execute(
@@ -1140,7 +1223,7 @@ def replace_ai_role_analysis(assignments, competitions, analysis_version):
     assignments: [{role_id, employee_id, match_score, confidence, analysis_result}, ...]
     competitions: [{role_id, employee_id, rank, score, reason}, ...]
     """
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     with get_db() as conn:
         conn.execute("DELETE FROM ai_role_competitions")
         conn.execute("DELETE FROM ai_role_assignments")
@@ -1229,8 +1312,17 @@ def get_daily_reports_by_dates(dates):
         return {f"{r['report_date']}_{r['member_id']}": dict(r) for r in rows}
 
 
-def insert_daily_report(report_date, member_id, content, content_hash, status="active"):
-    now = datetime.now().isoformat(timespec="seconds")
+def get_daily_report_by_key(report_date, member_id):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM daily_report WHERE report_date = ? AND member_id = ?",
+            (report_date, member_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def insert_daily_report(report_date, member_id, content, content_hash, status="active", operator="excel_import"):
+    now = now_iso()
     with get_db() as conn:
         c = conn.cursor()
         c.execute(
@@ -1243,14 +1335,14 @@ def insert_daily_report(report_date, member_id, content, content_hash, status="a
         c.execute(
             """INSERT INTO daily_report_history
                (report_id, old_content, new_content, change_type, operator)
-               VALUES (?, NULL, ?, 'NEW', 'excel_import')""",
-            (report_id, content),
+               VALUES (?, NULL, ?, 'NEW', ?)""",
+            (report_id, content, operator),
         )
         return report_id
 
 
 def update_daily_report(report_id, content, content_hash, old_content, operator="excel_import"):
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     with get_db() as conn:
         row = conn.execute("SELECT version FROM daily_report WHERE id = ?", (report_id,)).fetchone()
         version = (row["version"] if row else 1) + 1
@@ -1269,6 +1361,51 @@ def update_daily_report(report_id, content, content_hash, old_content, operator=
         return version
 
 
+def list_daily_report_style_prompts():
+    with get_db() as conn:
+        seed_daily_report_style_prompts(conn)
+        conn.commit()
+        rows = conn.execute(
+            """SELECT * FROM daily_report_style_prompt
+               ORDER BY sort_order ASC, id ASC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_daily_report_style_prompt(style_id):
+    with get_db() as conn:
+        seed_daily_report_style_prompts(conn)
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM daily_report_style_prompt WHERE id = ?",
+            (style_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_daily_report_style_prompt(style_id, prompt, label=None):
+    now = now_iso()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM daily_report_style_prompt WHERE id = ?",
+            (style_id,),
+        ).fetchone()
+        if not row:
+            return None
+        next_label = label if label is not None and str(label).strip() else row["label"]
+        conn.execute(
+            """UPDATE daily_report_style_prompt
+               SET prompt = ?, label = ?, updated_at = ?
+               WHERE id = ?""",
+            (prompt.strip(), next_label, now, style_id),
+        )
+        updated = conn.execute(
+            "SELECT * FROM daily_report_style_prompt WHERE id = ?",
+            (style_id,),
+        ).fetchone()
+        return dict(updated) if updated else None
+
+
 def get_daily_report_history(report_id):
     with get_db() as conn:
         rows = conn.execute(
@@ -1280,7 +1417,7 @@ def get_daily_report_history(report_id):
 
 
 def create_daily_import_task(file_name):
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     with get_db() as conn:
         c = conn.cursor()
         c.execute(
@@ -1296,7 +1433,7 @@ def update_daily_import_task(task_id, **fields):
     if not fields:
         return
     fields = dict(fields)
-    fields["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    fields["updated_at"] = now_iso()
     if "result_json" in fields and not isinstance(fields["result_json"], str):
         fields["result_json"] = json.dumps(fields["result_json"], ensure_ascii=False)
     cols = ", ".join(f"{k} = ?" for k in fields)
@@ -1333,7 +1470,7 @@ def list_daily_import_tasks(limit=20):
 
 def upsert_daily_report_analysis(report_id, skills, projects, activity_type,
                                  difficulty=3, impact_score=0, analysis_json=None, version=1):
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     with get_db() as conn:
         conn.execute(
             """INSERT INTO daily_report_analysis
@@ -1373,7 +1510,7 @@ def get_member_report_statistics(days=30):
             SELECT dr.member_id, dra.projects, COUNT(*) as cnt
             FROM daily_report dr
             LEFT JOIN daily_report_analysis dra ON dra.report_id = dr.id
-            WHERE dr.report_date >= date('now', ?)
+            WHERE dr.report_date >= date('now', '+8 hours', ?)
             GROUP BY dr.member_id, dra.projects
             """,
             (f"-{int(days)} days",),
@@ -1415,7 +1552,7 @@ def get_member_recent_report_summary(member_id=None, days=30, limit=100):
                    dra.skills, dra.projects, dra.activity_type, dra.impact_score
             FROM daily_report dr
             LEFT JOIN daily_report_analysis dra ON dra.report_id = dr.id
-            WHERE dr.report_date >= date('now', ?)
+            WHERE dr.report_date >= date('now', '+8 hours', ?)
         """
         params = [f"-{int(days)} days"]
         if member_id:

@@ -5,6 +5,8 @@ import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta
 
+from timeutil import now_iso, now_naive, today
+
 from database import get_all_members, get_member, get_ai_native_role, get_ai_native_roles, get_ai_role_assignments
 
 from . import repository as repo
@@ -47,7 +49,7 @@ def _set_task(kind, newcomer_id, **kwargs):
 def _days_since(entry_date):
     try:
         d = datetime.strptime((entry_date or "")[:10], "%Y-%m-%d")
-        return max(0, (datetime.now() - d).days)
+        return max(0, (now_naive() - d).days)
     except ValueError:
         return 0
 
@@ -113,7 +115,7 @@ def refresh_interventions(newcomer_id):
     repo.close_open_interventions(newcomer_id)
     member = get_member(nc["employee_id"]) or {}
     name = member.get("name") or nc["employee_id"]
-    now = datetime.now()
+    now = now_naive()
 
     for t in tasks:
         if t.get("help_requested") and t.get("status") != "completed":
@@ -282,7 +284,16 @@ def get_detail(employee_id):
             f"完成{current['task_name']}" if current
             else "生成下一培养任务"
         ),
+        "stage_records": _stage_records(nc),
     }
+
+
+def _stage_records(nc):
+    try:
+        from growth.service import list_stage_bundle
+        return list_stage_bundle(nc["id"], nc.get("target_role_id"))
+    except Exception:
+        return []
 
 
 def create_newcomer(payload):
@@ -292,7 +303,7 @@ def create_newcomer(payload):
         raise ValueError("成员不存在")
     if repo.get_newcomer_by_employee(employee_id):
         raise ValueError("该成员已在新人地图中")
-    entry = (payload.get("entry_date") or datetime.now().strftime("%Y-%m-%d"))[:10]
+    entry = (payload.get("entry_date") or today())[:10]
     nc = repo.create_newcomer({
         "employee_id": employee_id,
         "entry_date": entry,
@@ -363,7 +374,7 @@ def publish_guide(employee_id):
         tasks = repo.list_tasks(nc["id"])
         l0 = next((t for t in tasks if t.get("task_level") == "L0" and t.get("status") == "todo"), None)
         if l0:
-            repo.update_task(l0["id"], status="in_progress", started_at=datetime.now().isoformat(timespec="seconds"))
+            repo.update_task(l0["id"], status="in_progress", started_at=now_iso())
     return get_detail(nc["employee_id"])
 
 
@@ -453,7 +464,7 @@ def update_task(task_id, payload):
         if k in payload:
             fields[k] = payload[k]
     if payload.get("status") == "in_progress" and not task.get("started_at"):
-        fields["started_at"] = datetime.now().isoformat(timespec="seconds")
+        fields["started_at"] = now_iso()
     if payload.get("status") == "todo":
         fields["blocked_reason"] = ""
     updated = repo.update_task(task_id, **fields)
@@ -467,7 +478,7 @@ def complete_task(task_id, note=""):
     if not task:
         return None
     nc = repo.get_newcomer(task["newcomer_id"])
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     repo.update_task(
         task_id,
         status="completed",
@@ -520,7 +531,7 @@ def list_interventions():
 
 def resolve_intervention(intervention_id):
     from database import get_db
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_iso()
     with get_db() as conn:
         conn.execute(
             """UPDATE newcomer_interventions

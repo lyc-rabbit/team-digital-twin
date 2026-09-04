@@ -2,13 +2,13 @@
 
 import json
 import uuid
-from datetime import datetime
+from timeutil import now_iso
 
 from database import get_db
 
 
 def _now():
-    return datetime.now().isoformat(timespec="seconds")
+    return now_iso()
 
 
 def _dumps(obj):

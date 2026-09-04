@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Heart, AlertTriangle, ShieldCheck, TrendingUp, Clock, RefreshCw } from 'lucide-react'
+import { Heart, AlertTriangle, ShieldCheck, TrendingUp, RefreshCw } from 'lucide-react'
 import { api } from '../api/client.js'
+import { beijingToday } from '../utils/beijingTime.js'
+import RelationshipScoreDetail from './RelationshipScoreDetail.jsx'
+import { RecordEventButton } from './EventRecorderContext.jsx'
 
 const EMOTION_COLORS = {
   '平静': '#94a3b8',
@@ -38,11 +41,7 @@ function getHealthColor(health) {
 }
 
 function todayStr() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return beijingToday()
 }
 
 export default function Dashboard({ members }) {
@@ -184,9 +183,12 @@ export default function Dashboard({ members }) {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto fade-in">
       {/* 标题 */}
-      <div>
-        <h2 className="text-xl font-bold text-slate-800">团队总览</h2>
-        <p className="text-sm text-slate-500 mt-1">实时团队健康度 · 关系网格 · 情绪状态</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">团队总览</h2>
+          <p className="text-sm text-slate-500 mt-1">实时团队健康度 · 关系网格 · 情绪状态。点击信任分值查看证据。</p>
+        </div>
+        <RecordEventButton context={{ source: 'dashboard' }} />
       </div>
 
       {newcomerHome && (newcomerHome.newcomers || []).length > 0 && (
@@ -348,33 +350,12 @@ export default function Dashboard({ members }) {
           {/* 选中关系的详情 */}
           {selectedPair && grid[selectedPair] && (
             <div className="mt-4 p-3 bg-slate-50 rounded-lg fade-in">
-              <div className="text-xs text-slate-600">
-                <span className="font-semibold">{selectedPair.replace('→', ' → ')}</span>
-                <span className="mx-2 text-slate-300">|</span>
-                <span>{grid[selectedPair].tag}</span>
-              </div>
-              <div className="flex gap-6 mt-2 text-xs">
-                <div>
-                  <span className="text-slate-400">信任度:</span>
-                  <span className="ml-1 font-semibold" style={{ color: getScoreColor(grid[selectedPair].trust).text }}>
-                    {grid[selectedPair].trust > 0 ? '+' : ''}{grid[selectedPair].trust}
-                  </span>
-                  <span className="text-slate-300 ml-1">/ 100</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">情绪值:</span>
-                  <span className="ml-1 font-semibold" style={{ color: getScoreColor(grid[selectedPair].sentiment).text }}>
-                    {grid[selectedPair].sentiment > 0 ? '+' : ''}{grid[selectedPair].sentiment}
-                  </span>
-                  <span className="text-slate-300 ml-1">/ 100</span>
-                </div>
-              </div>
-              {grid[selectedPair].last_event_time && (
-                <div className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
-                  <Clock size={10} />
-                  最后更新: {grid[selectedPair].last_event_time}
-                </div>
-              )}
+              <RelationshipScoreDetail
+                fromId={selectedPair.split('→')[0]}
+                toId={selectedPair.split('→')[1]}
+                dimension="trust"
+                onClose={() => setSelectedPair(null)}
+              />
             </div>
           )}
 

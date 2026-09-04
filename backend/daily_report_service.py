@@ -21,7 +21,9 @@ from openpyxl import load_workbook
 
 from database import (
     get_all_members,
+    get_member,
     get_daily_reports_by_dates,
+    get_daily_report_by_key,
     insert_daily_report,
     update_daily_report,
     create_daily_import_task,
@@ -29,8 +31,12 @@ from database import (
     get_daily_import_task,
     upsert_daily_report_analysis,
     get_member_recent_report_summary,
+    get_daily_report_style_prompt,
+    list_daily_report_style_prompts,
+    update_daily_report_style_prompt,
 )
-from llm_client import analyze_daily_report, is_mock_mode
+from llm_client import analyze_daily_report, is_mock_mode, rewrite_daily_report, last_call_degraded
+from timeutil import parse_day
 
 
 # ========== Hash / 标准化 ==========
@@ -179,7 +185,7 @@ def diff_and_sync(rows: list) -> dict:
         old = existing.get(key)
 
         if not old:
-            rid = insert_daily_report(r["date"], r["member_id"], r["content"], h)
+            rid = insert_daily_report(r["date"], r["member_id"], r["content"], h, operator="excel_import")
             new_items.append({"report_id": rid, **r})
             analyze_ids.append(rid)
             continue
@@ -357,3 +363,94 @@ def build_ai_native_report_evidence(days=30) -> dict:
             "snippets": b["snippets"],
         }
     return out
+
+
+def list_rewrite_styles():
+    return list_daily_report_style_prompts()
+
+
+def save_rewrite_style(style_id, prompt, label=None):
+    if not (prompt or "").strip():
+        raise ValueError("提示词不能为空")
+    row = update_daily_report_style_prompt(style_id, prompt, label=label)
+    if not row:
+        raise KeyError("风格不存在")
+    return row
+
+
+def rewrite_report_text(raw_text, style_id, prompt_override=None):
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("请先输入工作描述")
+    style = get_daily_report_style_prompt(style_id)
+    if not style:
+        raise KeyError("风格不存在")
+    prompt = (prompt_override or "").strip() or style["prompt"]
+    result = rewrite_daily_report(text, prompt, style_label=style.get("label"))
+    return {
+        "text": result,
+        "style_id": style["id"],
+        "style_label": style.get("label"),
+        "degraded": last_call_degraded() or is_mock_mode(),
+    }
+
+
+def ingest_generated_report(report_date, member_id, content):
+    """一键转入：当天该成员已有日报则追加，否则新增。"""
+    day = parse_day(report_date)
+    if not day:
+        raise ValueError("请选择有效日期")
+    text = (content or "").strip()
+    if not text:
+        raise ValueError("日报内容不能为空")
+    member = get_member(member_id)
+    if not member:
+        raise KeyError("成员不存在")
+
+    existing = get_daily_report_by_key(day, member_id)
+    if existing:
+        old = (existing.get("content") or "").rstrip()
+        merged = f"{old}\n\n{text}" if old else text
+        if merged == (existing.get("content") or ""):
+            return {
+                "report_id": existing["id"],
+                "action": "unchanged",
+                "version": existing.get("version") or 1,
+                "content": existing.get("content") or "",
+                "report_date": day,
+                "member_id": member_id,
+                "member_name": member.get("name") or member_id,
+            }
+        h = content_hash(merged)
+        version = update_daily_report(
+            existing["id"], merged, h, existing.get("content") or "",
+            operator="rewrite_ingest",
+        )
+        report_id = existing["id"]
+        action = "appended"
+        final_content = merged
+    else:
+        h = content_hash(text)
+        report_id = insert_daily_report(
+            day, member_id, text, h, operator="rewrite_ingest",
+        )
+        version = 1
+        action = "created"
+        final_content = text
+
+    run_ai_analysis_for_reports([{
+        "report_id": report_id,
+        "content": final_content,
+        "member_id": member_id,
+        "member_name": member.get("name"),
+        "date": day,
+    }])
+    return {
+        "report_id": report_id,
+        "action": action,
+        "version": version,
+        "content": final_content,
+        "report_date": day,
+        "member_id": member_id,
+        "member_name": member.get("name") or member_id,
+    }

@@ -9,6 +9,7 @@
 
 import math
 from datetime import datetime
+from timeutil import now_iso
 from database import get_relationship_logs, get_emotion_logs, get_all_members
 
 
@@ -67,8 +68,8 @@ def compute_relationship_grid(at_time=None, include_hypothetical=True):
             continue
 
         # 计算衰减因子
-        trust_decay = _decay_factor(log["event_time"], at_time or datetime.now().isoformat(), TRUST_HALF_LIFE_DAYS)
-        sentiment_decay = _decay_factor(log["event_time"], at_time or datetime.now().isoformat(), SENTIMENT_HALF_LIFE_DAYS)
+        trust_decay = _decay_factor(log["event_time"], at_time or now_iso(), TRUST_HALF_LIFE_DAYS)
+        sentiment_decay = _decay_factor(log["event_time"], at_time or now_iso(), SENTIMENT_HALF_LIFE_DAYS)
 
         grid[key]["trust"] += log["trust_delta"] * trust_decay
         grid[key]["sentiment"] += log["sentiment_delta"] * sentiment_decay

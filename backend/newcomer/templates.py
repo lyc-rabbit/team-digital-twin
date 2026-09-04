@@ -1,6 +1,6 @@
 """新人培养模板：阶段、任务等级、能力、入职指南骨架。"""
 
-from datetime import datetime
+from timeutil import today as beijing_today
 
 STAGES = [
     {"id": "onboarding", "label": "入职指南", "order": 1},
@@ -33,18 +33,19 @@ CAPABILITIES = {
     "testing": "测试",
     "ai_context": "AI Context",
     "architecture": "架构理解",
+    "problem_definition": "问题定义与结构化沟通",
 }
 
 ROLE_CAPABILITIES = {
-    "developer": ["git", "python", "ai_coding", "debug", "testing", "api", "project_structure"],
-    "architect": ["architecture", "api", "project_structure", "ai_coding", "debug"],
-    "tester": ["testing", "debug", "api", "git", "ai_coding"],
-    "product_manager": ["api", "project_structure", "ai_context"],
-    "project_manager": ["project_structure", "git", "ai_context"],
-    "ui_designer": ["project_structure", "ai_coding"],
-    "context_owner": ["ai_context", "ai_coding", "project_structure"],
-    "leader": ["architecture", "ai_context", "project_structure"],
-    "business_owner": ["api", "project_structure"],
+    "developer": ["git", "python", "ai_coding", "debug", "testing", "api", "project_structure", "problem_definition"],
+    "architect": ["architecture", "api", "project_structure", "ai_coding", "debug", "problem_definition"],
+    "tester": ["testing", "debug", "api", "git", "ai_coding", "problem_definition"],
+    "product_manager": ["api", "project_structure", "ai_context", "problem_definition"],
+    "project_manager": ["project_structure", "git", "ai_context", "problem_definition"],
+    "ui_designer": ["project_structure", "ai_coding", "problem_definition"],
+    "context_owner": ["ai_context", "ai_coding", "project_structure", "problem_definition"],
+    "leader": ["architecture", "ai_context", "project_structure", "problem_definition"],
+    "business_owner": ["api", "project_structure", "problem_definition"],
 }
 
 LEVEL_TO_STAGE = {
@@ -156,10 +157,10 @@ def template_guide(member, team_names, projects, role_name, tech_stack):
     contacts = "、".join(team_names[:8]) or "团队负责人"
     proj = "、".join(projects[:6]) or "当前团队项目"
     stack = "、".join(tech_stack[:8]) or "以仓库 README 为准"
-    today = datetime.now().strftime("%Y-%m-%d")
+    generated = beijing_today()
     return {
         "title": f"{member.get('name') or '新人'}入职指南",
-        "generated_at": today,
+        "generated_at": generated,
         "sections": [
             {"id": "01", "title": "团队介绍", "body": f"当前团队成员：{contacts}。有问题先看本指南，再找对应联系人。"},
             {"id": "02", "title": "项目介绍", "body": f"近期相关项目：{proj}。先跑通主流程，再深入模块。"},

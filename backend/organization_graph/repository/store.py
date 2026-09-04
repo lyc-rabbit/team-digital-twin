@@ -7,14 +7,14 @@ Neo4j 不可用时保证读写不挂；重建时作为暂存层，再全量发�
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from timeutil import now_iso, today
 from typing import Optional
 
 from database import DB_PATH
 
 
 def _now():
-    return datetime.now().isoformat(timespec="seconds")
+    return now_iso()
 
 
 def _dumps(obj):
@@ -154,7 +154,7 @@ class GraphStore:
     def find_person(self, person_id: str) -> Optional[dict]:
         node = self.get_node(person_id)
         if node and node.get("type") == "Person":
-            return node
+            return self._follow_canonical(node)
         with self._db() as conn:
             rows = conn.execute(
                 "SELECT * FROM oig_nodes WHERE type = 'Person'"
@@ -162,10 +162,30 @@ class GraphStore:
         for row in rows:
             node = self._row_to_node(row)
             if node["id"] == person_id or node.get("name") == person_id:
-                return node
+                return self._follow_canonical(node)
         return None
 
-    def list_nodes(self, node_type: Optional[str] = None) -> list:
+    def _follow_canonical(self, node: dict) -> dict:
+        if (node.get("entity_status") or "ACTIVE") != "MERGED":
+            return node
+        cid = node.get("canonical_entity_id")
+        if cid and cid != node.get("id"):
+            canon = self.get_node(cid)
+            if canon:
+                return canon
+        return node
+
+    def _inactive_node_ids(self) -> set:
+        ids = set()
+        with self._db() as conn:
+            rows = conn.execute("SELECT id, properties FROM oig_nodes").fetchall()
+        for row in rows:
+            props = _loads(row["properties"])
+            if (props.get("entity_status") or "ACTIVE") in ("MERGED", "RETIRED"):
+                ids.add(row["id"])
+        return ids
+
+    def list_nodes(self, node_type: Optional[str] = None, include_merged: bool = False) -> list:
         query = "SELECT * FROM oig_nodes"
         params = []
         if node_type:
@@ -174,11 +194,14 @@ class GraphStore:
         query += " ORDER BY type, name"
         with self._db() as conn:
             rows = conn.execute(query, params).fetchall()
-        return [self._row_to_node(r) for r in rows]
+        nodes = [self._row_to_node(r) for r in rows]
+        if not include_merged:
+            nodes = [n for n in nodes if (n.get("entity_status") or "ACTIVE") == "ACTIVE"]
+        return nodes
 
     def upsert_edge(self, source, target, relation, properties=None, record_history=True):
         properties = dict(properties or {})
-        properties.setdefault("last_update", datetime.now().strftime("%Y-%m-%d"))
+        properties.setdefault("last_update", today())
         edge_id = f"{source}|{relation}|{target}"
         existing = self.get_edge(edge_id)
         if existing:
@@ -214,12 +237,18 @@ class GraphStore:
             )
         return edge_id
 
+    def delete_edge(self, source, target, relation):
+        edge_id = f"{source}|{relation}|{target}"
+        with self._db() as conn:
+            conn.execute("DELETE FROM oig_edges WHERE id = ?", (edge_id,))
+        return edge_id
+
     def get_edge(self, edge_id: str) -> Optional[dict]:
         with self._db() as conn:
             row = conn.execute("SELECT * FROM oig_edges WHERE id = ?", (edge_id,)).fetchone()
             return self._row_to_edge(row) if row else None
 
-    def list_edges(self, relation: Optional[str] = None, source=None, target=None) -> list:
+    def list_edges(self, relation: Optional[str] = None, source=None, target=None, include_merged: bool = False) -> list:
         query = "SELECT * FROM oig_edges WHERE 1=1"
         params = []
         if relation:
@@ -233,7 +262,20 @@ class GraphStore:
             params.append(target)
         with self._db() as conn:
             rows = conn.execute(query, params).fetchall()
-        return [self._row_to_edge(r) for r in rows]
+        edges = [self._row_to_edge(r) for r in rows]
+        if not include_merged:
+            inactive = self._inactive_node_ids()
+            filtered = []
+            for e in edges:
+                if e.get("relation") in ("MERGED_INTO", "ALIAS_OF"):
+                    continue
+                if (e.get("properties") or {}).get("entity_status") in ("MERGED", "RETIRED"):
+                    continue
+                if e.get("source") in inactive or e.get("target") in inactive:
+                    continue
+                filtered.append(e)
+            edges = filtered
+        return edges
 
     def neighbors(self, node_id: str, relations=None) -> list:
         query = """
@@ -243,6 +285,11 @@ class GraphStore:
         with self._db() as conn:
             rows = conn.execute(query, (node_id, node_id)).fetchall()
         edges = [self._row_to_edge(r) for r in rows]
+        edges = [
+            e for e in edges
+            if e.get("relation") not in ("MERGED_INTO", "ALIAS_OF")
+            and (e.get("properties") or {}).get("entity_status") != "MERGED"
+        ]
         if relations:
             allowed = set(relations)
             edges = [e for e in edges if e["relation"] in allowed]

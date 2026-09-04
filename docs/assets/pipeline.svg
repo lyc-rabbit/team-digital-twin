@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 220" width="960" height="220" role="img" aria-labelledby="title desc">
+  <title id="title">Evidence to insight pipeline</title>
+  <desc id="desc">Materials become facts, then a knowledge graph, then analysis and simulation.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="220" rx="20" fill="#0f172a"/>
+  <text x="40" y="42" fill="#94a3b8" font-family="Segoe UI, system-ui, sans-serif" font-size="13">TEAM DIGITAL TWIN ? PIPELINE</text>
+  <g font-family="Segoe UI, system-ui, sans-serif">
+    <rect x="36" y="70" width="160" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="116" y="108" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700">&#26448;&#26009;</text>
+    <text x="116" y="132" text-anchor="middle" fill="#94a3b8" font-size="12">events / docs</text>
+
+    <rect x="228" y="70" width="160" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="308" y="108" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700">&#20107;&#23454;</text>
+    <text x="308" y="132" text-anchor="middle" fill="#94a3b8" font-size="12">human confirm</text>
+
+    <rect x="420" y="70" width="160" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="500" y="108" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700">&#22270;&#35889;</text>
+    <text x="500" y="132" text-anchor="middle" fill="#94a3b8" font-size="12">typed relations</text>
+
+    <rect x="612" y="70" width="160" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="692" y="108" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700">&#20998;&#26512;</text>
+    <text x="692" y="132" text-anchor="middle" fill="#94a3b8" font-size="12">situation / graph</text>
+
+    <rect x="804" y="70" width="120" height="96" rx="14" fill="#312e81" stroke="#6366f1"/>
+    <text x="864" y="108" text-anchor="middle" fill="#e0e7ff" font-size="16" font-weight="700">&#25512;&#28436;</text>
+    <text x="864" y="132" text-anchor="middle" fill="#a5b4fc" font-size="12">what-if</text>
+  </g>
+  <path d="M196 118 H228 M388 118 H420 M580 118 H612 M772 118 H804" stroke="url(#g)" stroke-width="3" fill="none"/>
+  <circle cx="212" cy="118" r="4" fill="#f59e0b"/>
+  <circle cx="404" cy="118" r="4" fill="#f59e0b"/>
+  <circle cx="596" cy="118" r="4" fill="#f59e0b"/>
+  <circle cx="788" cy="118" r="4" fill="#f59e0b"/>
+</svg>

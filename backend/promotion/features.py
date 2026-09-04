@@ -16,19 +16,32 @@ from organization_graph.ontology.relations import (
     REL_COLLABORATE,
     REL_CONFLICT,
     REL_CONTROL,
+    REL_EXECUTION_RESPONSIBILITY,
+    REL_MANAGEMENT_RESPONSIBILITY,
     REL_MENTOR,
+    REL_PERFORMED_TRAINING,
     REL_TRUST,
-    REL_OWNER,
 )
 
 
-def collect_context(target_role_id=None):
+def collect_context(target_role_id=None, date_from=None, date_to=None):
     GraphBuilder().ensure_built()
     members = get_all_members()
     store = get_store()
     nodes = store.list_nodes()
     edges = store.list_edges()
-    influence = compute_influence(nodes, edges)
+    from timeutil import today, intervals_overlap, parse_day
+    date_to = parse_day(date_to) or today()
+    date_from = parse_day(date_from) or f"{date_to[:4]}-01-01"
+    windowed = []
+    for e in edges:
+        props = e.get("properties") or {}
+        vf, vt = props.get("valid_from"), props.get("valid_to")
+        if not vf and not vt:
+            windowed.append(e)
+        elif intervals_overlap(vf, vt, date_from, date_to):
+            windowed.append(e)
+    influence = compute_influence(nodes, windowed)
     role = get_ai_native_role(target_role_id) if target_role_id else None
     return {
         "members": members,
@@ -40,8 +53,9 @@ def collect_context(target_role_id=None):
         "evidence": build_ai_native_report_evidence(days=30),
         "events": get_events(include_hypothetical=False)[-40:],
         "influence": influence,
-        "edges": edges,
+        "edges": windowed,
         "nodes": {n["id"]: n for n in nodes},
+        "window": {"from": date_from, "to": date_to},
     }
 
 
@@ -58,7 +72,9 @@ def extract_features(member, ctx) -> dict:
     conflict_n, conflict_impact = 0, 0.0
     collab = 0
     resource = 0.0
-    owner_n = 0
+    exec_n = 0
+    mgmt_n = 0
+    train_n = 0
     for e in ctx.get("edges") or []:
         props = e.get("properties") or {}
         rel = e.get("relation")
@@ -68,6 +84,8 @@ def extract_features(member, ctx) -> dict:
             trust_n += 1
         if rel == REL_MENTOR and src == mid:
             mentor_out += 1
+        if rel == REL_PERFORMED_TRAINING and src == mid:
+            train_n += 1
         if rel == REL_CONFLICT and mid in (src, tgt):
             conflict_n += 1
             conflict_impact += float(props.get("impact") or 50)
@@ -75,8 +93,23 @@ def extract_features(member, ctx) -> dict:
             collab += 1
         if rel == REL_CONTROL and src == mid:
             resource = max(resource, float(props.get("resource_value") or 60))
-        if rel == REL_OWNER and src == mid:
-            owner_n += 1
+        if rel == "CONTROL_KEY_RESOURCE" and src == mid:
+            resource = max(resource, 78)
+        if rel == REL_EXECUTION_RESPONSIBILITY and src == mid:
+            exec_n += 1
+        if rel == REL_MANAGEMENT_RESPONSIBILITY and src == mid:
+            mgmt_n += 1
+
+    try:
+        from knowledge_governance.semantic_domains import contribution_counts
+        cc = contribution_counts(mid, ctx.get("edges") or [], list((ctx.get("nodes") or {}).values()))
+        tech_n = cc.get("technical", 0) + cc.get("architecture", 0)
+        report_n = cc.get("reporting", 0) + cc.get("reporting_resp", 0)
+        exec_n = max(exec_n, cc.get("execution_resp", 0))
+        mgmt_n = max(mgmt_n, cc.get("management_resp", 0))
+        train_n = max(train_n, cc.get("training_actions", 0))
+    except Exception:
+        tech_n, report_n = 0, 0
 
     trust = (trust_in / trust_n * 100) if trust_n else 50
     conflict_risk = min(95, 12 + conflict_n * 14 + (conflict_impact / max(conflict_n, 1)) * 0.2) if conflict_n else 10
@@ -86,8 +119,8 @@ def extract_features(member, ctx) -> dict:
 
     days = int(ev.get("days") or 0)
     impact = float(ev.get("impact") or 0)
-    delivery = min(95, 32 + days * 3 + min(25, impact / 4) + owner_n * 4)
-    professional = min(95, 38 + len(ev.get("skills") or {}) * 4 + len(node.get("skills") or []) * 2)
+    delivery = min(95, 32 + days * 3 + min(25, impact / 4) + exec_n * 4 + tech_n * 3)
+    professional = min(95, 38 + len(ev.get("skills") or {}) * 4 + len(node.get("skills") or []) * 2 + tech_n * 5)
 
     required = [s.lower() for s in (role.get("required_skills") or [])]
     person_skills = [s.lower() for s in (ev.get("skills") or {}).keys()] + [
@@ -113,21 +146,34 @@ def extract_features(member, ctx) -> dict:
     # 战略 / 管理：人设 + 角色词
     text = blob
     strategy = 45
-    for kw, add in (("战略", 18), ("目标", 8), ("对齐", 8), ("负责", 10), ("决策", 10), ("方向", 8)):
+    for kw, add in (("战略", 18), ("目标", 8), ("对齐", 8), ("决策", 10), ("方向", 8)):
         if kw in text:
             strategy = min(92, strategy + add)
-    management = 40 + (12 if any(k in (member.get("role") or "") for k in ("负责", "经理", "主管", "Leader")) else 0)
-    management = min(92, management + mentor_out * 8 + (8 if "管理" in text or "培养" in text else 0))
+    management = 40 + mgmt_n * 10 + report_n * 2
+    management = min(92, management + (6 if "管理" in text else 0))
 
     coordination = min(95, 30 + connections * 8 + collab * 3 + betweenness * 0.4)
     risk_control = max(15, min(95, 88 - conflict_risk * 0.7 + (10 if "风险" in text else 0)))
     fairness = min(95, trust * 0.7 + 20)
     protection = max(20, min(95, 90 - conflict_risk * 0.6))
-    communication = min(95, 40 + collab * 4 + (12 if "沟通" in text or "协同" in text else 0))
+    communication = min(95, 40 + collab * 4 + (12 if "沟通" in text or "协同" in text else 0) + report_n * 3)
     intensity = float(state.get("intensity") or 3)
     stability = max(25, min(95, 95 - (intensity - 3) * 10))
     expertise = professional
-    mentoring = min(95, 35 + mentor_out * 15 + (10 if "培养" in text or "带教" in text else 0))
+    mentoring = min(95, 35 + train_n * 15 + mentor_out * 8)
+    try:
+        from growth.repository import list_capability_evidence
+        from growth.cadre import promotion_assessment
+        caps = list_capability_evidence(mid)
+        if any((c.get("capability_id") or "") == "problem_definition" for c in caps):
+            communication = min(95, communication + 8)
+        if any((c.get("capability_id") or "") == "mentoring" for c in caps):
+            mentoring = min(95, mentoring + 10)
+        assess = promotion_assessment(mid) or {}
+        if assess.get("management_ability") == "已验证":
+            management = min(95, management + 8)
+    except Exception:
+        pass
 
     innovation = 42
     for kw in ("创新", "探索", "Agent", "架构", "突破", "从0"):

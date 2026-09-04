@@ -4,6 +4,7 @@ import {
   Trophy, AlertTriangle, Sparkles, Trash2, Square,
 } from 'lucide-react'
 import { api } from '../api/client.js'
+import { RecordEventButton } from './EventRecorderContext.jsx'
 
 const LAYER_ORDER = ['boss', 'team', 'role', 'custom']
 
@@ -141,18 +142,21 @@ export default function PromotionPanel({ members }) {
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <TrendingUp size={20} className="text-brand-600" />
-            组织晋升推演
+            晋升领导
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            岗位模型 + 人员数字孪生 + 组织评价 + 个性化权重 → 谁更可能晋升、为什么、有何风险
+            角色能力 + 项目成长证据 + 新人培养 + 向上协同 + 关系网 + 管理事件。重点回答：为什么还不能晋升。
           </p>
         </div>
-        <button
+        <div className="flex items-center gap-2">
+          <RecordEventButton context={{ source: 'promotion', event_type: 'management' }} />
+          <button
           onClick={() => setView('create')}
           className="flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg"
         >
           <Plus size={15} /> 新建推演
         </button>
+        </div>
       </div>
 
       {error && <div className="text-xs bg-red-50 text-red-700 border border-red-100 rounded-lg px-3 py-2">{error}</div>}
@@ -443,6 +447,7 @@ function ResultView({ detail, selectedPerson, onSelectPerson, onBack, onOpenWeig
 function PersonReport({ person }) {
   const a = person.analysis_json || {}
   const pred = a.future_prediction || {}
+  const g = person.growth || {}
   return (
     <div className="space-y-4">
       <div>
@@ -452,6 +457,22 @@ function PersonReport({ person }) {
         </div>
         <div className="text-[11px] text-slate-400 mt-0.5">综合 {Math.round(person.score)} · 概率 {person.promotion_probability}%</div>
       </div>
+      {g.management_ability && (
+        <div className="bg-slate-50 rounded-xl p-3 space-y-1">
+          <div className="text-[11px] font-bold text-slate-600">当前管理能力</div>
+          <p className="text-xs text-slate-700">{g.management_ability} · {g.current_stage}</p>
+        </div>
+      )}
+      <Block title="优势" items={g.strengths?.length ? g.strengths : a.reasoning} />
+      <Block title="短板" items={g.weaknesses} />
+      <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+        <div className="text-[11px] font-bold text-amber-800 mb-1">为什么还不能晋升？</div>
+        <ul className="text-xs text-amber-900 space-y-1">
+          {(g.why_not_promote || ['成长证据不足']).map((x, i) => <li key={i}>· {x}</li>)}
+        </ul>
+      </div>
+      <Block title="缺失经历" items={g.missing_experiences} />
+      <Block title="推荐培养动作" items={g.recommended_actions} />
       <Block title="事实" items={a.facts} />
       {a.relationship?.influence && (
         <div>
@@ -462,10 +483,10 @@ function PersonReport({ person }) {
       <Block title="晋升理由" items={a.reasoning} />
       <div>
         <div className="text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
-          <AlertTriangle size={12} className="text-amber-500" /> 风险
+          <AlertTriangle size={12} className="text-amber-500" /> 晋升风险
         </div>
         <ul className="text-xs text-slate-600 space-y-1">
-          {(a.risk || ['暂无']).map((x, i) => <li key={i}>· {x}</li>)}
+          {(g.promotion_risks || a.risk || ['暂无']).map((x, i) => <li key={i}>· {x}</li>)}
         </ul>
       </div>
       <div className="bg-slate-50 rounded-xl p-3">

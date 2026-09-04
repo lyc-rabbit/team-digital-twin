@@ -29,13 +29,18 @@ class GraphFacade:
         self.neo.error = str(err)
         print(f"[OIG] Neo4j 不可用，读写改走 SQLite 兜底: {err}")
 
-    def list_nodes(self, node_type: Optional[str] = None) -> list:
+    def list_nodes(self, node_type: Optional[str] = None, include_merged: bool = False) -> list:
         if self._use_neo():
             try:
-                return self.neo.list_nodes(node_type)
+                return self.neo.list_nodes(node_type, include_merged=include_merged)
+            except TypeError:
+                nodes = self.neo.list_nodes(node_type)
+                if include_merged:
+                    return nodes
+                return [n for n in nodes if (n.get("entity_status") or "ACTIVE") == "ACTIVE"]
             except Exception as e:
                 self._disable_neo(e)
-        return self.sqlite.list_nodes(node_type)
+        return self.sqlite.list_nodes(node_type, include_merged=include_merged)
 
     def get_node(self, node_id: str) -> Optional[dict]:
         if self._use_neo():
@@ -53,13 +58,13 @@ class GraphFacade:
                 self._disable_neo(e)
         return self.sqlite.find_person(person_id)
 
-    def list_edges(self, relation: Optional[str] = None, source=None, target=None) -> list:
+    def list_edges(self, relation: Optional[str] = None, source=None, target=None, include_merged: bool = False) -> list:
         if self._use_neo():
             try:
-                return self.neo.list_edges(relation, source, target)
+                return self.neo.list_edges(relation, source, target, include_merged=include_merged)
             except Exception as e:
                 self._disable_neo(e)
-        return self.sqlite.list_edges(relation, source, target)
+        return self.sqlite.list_edges(relation, source, target, include_merged=include_merged)
 
     def neighbors(self, node_id: str, relations=None) -> list:
         if self._use_neo():
@@ -88,6 +93,15 @@ class GraphFacade:
                 self.neo.upsert_edge(
                     source, target, relation, edge.get("properties") or properties,
                 )
+            except Exception as e:
+                self._disable_neo(e)
+        return edge_id
+
+    def delete_edge(self, source, target, relation):
+        edge_id = self.sqlite.delete_edge(source, target, relation)
+        if self._use_neo():
+            try:
+                self.neo.delete_edge(source, target, relation)
             except Exception as e:
                 self._disable_neo(e)
         return edge_id

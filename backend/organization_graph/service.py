@@ -8,11 +8,23 @@ from .repository.neo4j import get_neo4j, is_neo4j_configured
 from .algorithms.influence import compute_influence
 from .algorithms.community import detect_communities, structural_holes
 from .algorithms.risk import analyze_risks
-from .extractor.llm_extract import extract_relations, apply_extraction
+from .extractor.llm_extract import extract_relations, merge_extraction_runs
 from .ontology.relations import REL_CONFLICT, REL_CONTROL, REL_TRUST
+from timeutil import today
 
 
 _builder = GraphBuilder()
+
+
+def _current_edges(store, when=None, include_history=False):
+    edges = store.list_edges()
+    if include_history:
+        return edges
+    try:
+        from temporal_graph.query import filter_current_edges
+        return filter_current_edges(edges, when or today())
+    except Exception:
+        return edges
 
 
 def _ready():
@@ -39,10 +51,23 @@ def rebuild_graph():
     return _builder.rebuild()
 
 
-def get_graph(node_types=None, relations=None):
+def get_graph(node_types=None, relations=None, include_merged=False, as_of=None, include_history=False):
+    if as_of:
+        from temporal_graph.query import snapshot
+        data = snapshot(as_of)
+        data["status"] = graph_status()
+        if node_types:
+            allowed = set(node_types)
+            data["nodes"] = [n for n in data["nodes"] if n.get("type") in allowed]
+            ids = {n["id"] for n in data["nodes"]}
+            data["edges"] = [e for e in data["edges"] if e["source"] in ids and e["target"] in ids]
+        if relations:
+            allowed_r = set(relations)
+            data["edges"] = [e for e in data["edges"] if e["relation"] in allowed_r]
+        return data
     store = _ready()
-    nodes = store.list_nodes()
-    edges = store.list_edges()
+    nodes = store.list_nodes(include_merged=include_merged)
+    edges = _current_edges(store, include_history=include_history)
     if node_types:
         allowed = set(node_types)
         nodes = [n for n in nodes if n.get("type") in allowed]
@@ -64,6 +89,11 @@ def person_network(person_id):
     if not person:
         return None
     edges = store.neighbors(person["id"])
+    try:
+        from temporal_graph.query import filter_current_edges
+        edges = filter_current_edges(edges)
+    except Exception:
+        pass
     by_id = {n["id"]: n for n in store.list_nodes()}
     relations = []
     for e in edges:
@@ -90,34 +120,47 @@ def person_network(person_id):
     }
 
 
-def influence_ranking():
+def influence_ranking(as_of=None, date_from=None, date_to=None):
     store = _ready()
     nodes = store.list_nodes()
     edges = store.list_edges()
-    inf = compute_influence(nodes, edges)
+    if as_of or date_from or date_to:
+        from temporal_graph.service import influence_window
+        inf, meta = influence_window(nodes, edges, date_from, date_to, as_of)
+    else:
+        inf = compute_influence(nodes, _current_edges(store))
+        meta = {"as_of": today()}
     ranking = sorted(inf.values(), key=lambda x: x["influence_score"], reverse=True)
     for i, item in enumerate(ranking, start=1):
         item["rank"] = i
-    return {"ranking": ranking, "algorithm": ["Degree Centrality", "Betweenness Centrality", "PageRank"]}
+    return {
+        "ranking": ranking,
+        "algorithm": ["Degree Centrality", "Betweenness Centrality", "PageRank"],
+        "temporal": meta,
+    }
 
 
 def get_communities():
     store = _ready()
     nodes = store.list_nodes()
-    edges = store.list_edges()
+    edges = _current_edges(store)
     communities = detect_communities(nodes, edges)
-    holes = structural_holes(nodes, edges)
+    holes = structural_holes(nodes, edges, communities)
     return {
         "communities": communities,
         "structural_holes": holes[:10],
-        "algorithm": {"community": "Louvain", "broker": "Structural Hole (Burt Constraint)"},
+        "algorithm": {
+            "community": "Louvain",
+            "broker": "Structural Hole (Burt Constraint)",
+            "score": "桥梁分 = (1 − 圈子束缚) × 100；束缚越低越像桥梁",
+        },
     }
 
 
 def get_risks():
     store = _ready()
     nodes = store.list_nodes()
-    edges = store.list_edges()
+    edges = _current_edges(store)
     inf = compute_influence(nodes, edges)
     return analyze_risks(nodes, edges, inf)
 
@@ -130,7 +173,7 @@ def leadership_profile(person_id):
         return None
 
     pid = person["id"]
-    inf_map = compute_influence(store.list_nodes(), store.list_edges())
+    inf_map = compute_influence(store.list_nodes(), _current_edges(store))
     inf = inf_map.get(pid) or {}
     influence = int(inf.get("influence_score") or person.get("influence_score") or 0)
 
@@ -140,6 +183,8 @@ def leadership_profile(person_id):
     resource_values = []
     for e in store.neighbors(pid):
         props = e.get("properties") or {}
+        if props.get("valid_to"):
+            continue
         rel = e["relation"]
         if rel == REL_TRUST:
             trust_scores.append(float(props.get("score") or props.get("strength") or 0))
@@ -210,13 +255,43 @@ def leadership_profile(person_id):
     }
 
 
-def extract_and_apply(text, source_type="document"):
+def extract_preview(text, source_type="document", rounds=3):
+    """调用抽取模型多次，去重后只返回候选，不写图谱。"""
     members = get_all_members()
+    temps = [0.0, 0.25, 0.45]
+    runs = []
+    for i in range(max(1, int(rounds or 3))):
+        temp = temps[i] if i < len(temps) else 0.35
+        runs.append(extract_relations(text, members, source_type=source_type, temperature=temp))
+    merged = merge_extraction_runs(runs)
+    return {
+        "extraction": merged,
+        "applied": None,
+        "pending_confirm": True,
+        "runs": merged.get("runs") or len(runs),
+        "mock_mode": merged.get("mock_mode"),
+        "degraded": merged.get("degraded"),
+    }
+
+
+def apply_confirmed_extraction(payload, text="", source_type="document"):
+    """用户确认后：先登记事实并确认写图，不再绕过事实层。"""
     store = _ready()
-    result = extract_relations(text, members, source_type=source_type)
-    applied = apply_extraction(result, members)
-    store.save_extraction(source_type, text, {**result, "applied": applied})
-    # 抽取后重算影响力
+    from fact_governance.bridge import ingest_confirmed_graph_relations
+    written = ingest_confirmed_graph_relations(
+        payload.get("relations") or [],
+        text=text or "",
+        source_type=source_type,
+        source_title="LLM 关系抽取",
+        entities=payload.get("entities") or [],
+    )
+    result = {
+        "entities": payload.get("entities") or [],
+        "relations": payload.get("relations") or [],
+        "mock_mode": payload.get("mock_mode"),
+        "degraded": payload.get("degraded"),
+    }
+    store.save_extraction(source_type, text or "", {**result, "applied": written.get("applied"), "confirmed": True, "facts": written})
     inf = compute_influence(store.list_nodes(), store.list_edges())
     for pid, info in inf.items():
         node = store.get_node(pid)
@@ -225,7 +300,37 @@ def extract_and_apply(text, source_type="document"):
             store.upsert_node(node)
     return {
         "extraction": result,
-        "applied": applied,
+        "applied": written.get("applied") or {"nodes": 0, "edges": 0},
+        "facts": written,
+        "pending_confirm": False,
+        "mock_mode": result.get("mock_mode"),
+        "degraded": result.get("degraded"),
+    }
+
+
+def extract_and_apply(text, source_type="document"):
+    members = get_all_members()
+    store = _ready()
+    result = extract_relations(text, members, source_type=source_type)
+    from fact_governance.bridge import ingest_confirmed_graph_relations
+    written = ingest_confirmed_graph_relations(
+        result.get("relations") or [],
+        text=text or "",
+        source_type=source_type,
+        source_title="事件驱动抽取",
+        entities=result.get("entities") or [],
+    )
+    store.save_extraction(source_type, text, {**result, "applied": written.get("applied"), "facts": written})
+    inf = compute_influence(store.list_nodes(), store.list_edges())
+    for pid, info in inf.items():
+        node = store.get_node(pid)
+        if node:
+            node["influence_score"] = info["influence_score"]
+            store.upsert_node(node)
+    return {
+        "extraction": result,
+        "applied": written.get("applied") or {"nodes": 0, "edges": 0},
+        "facts": written,
         "mock_mode": result.get("mock_mode"),
         "degraded": result.get("degraded"),
     }
@@ -237,12 +342,16 @@ def extraction_history(limit=20):
 
 def apply_event_update(name, time, description, members_hint=None):
     """V3 事件驱动更新：写入 Event 节点并抽取关系。"""
-    store = _ready()
-    from .ontology.nodes import node_template
-    from .builder import _slug
+    from entity_governance.service import resolve_entity
 
-    eid = _slug(name or "event", "event")
-    store.upsert_node(node_template("Event", eid, name or "未命名事件", time=time or "", description=description or ""))
+    resolved = resolve_entity(
+        "EVENT",
+        name or "未命名事件",
+        attributes={"time": time or "", "description": description or ""},
+        source={"type": "event"},
+        create_if_new=True,
+    )
+    eid = resolved["canonical_entity_id"]
     text = f"{time or ''} {name or ''} {description or ''}".strip()
     extracted = extract_and_apply(text, source_type="event")
-    return {"event_id": eid, **extracted}
+    return {"event_id": eid, "resolve": resolved, **extracted}

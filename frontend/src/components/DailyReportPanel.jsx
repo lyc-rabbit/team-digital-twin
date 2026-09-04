@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   FileSpreadsheet, Upload, Loader2, RefreshCw, Filter,
-  CheckCircle2, AlertTriangle, History, X,
+  CheckCircle2, AlertTriangle, History, X, Sparkles, Copy, Save, ArrowRight,
 } from 'lucide-react'
 import { api } from '../api/client.js'
+import { beijingToday, TZ_LABEL } from '../utils/beijingTime.js'
 
 export default function DailyReportPanel({ members }) {
   const [reports, setReports] = useState([])
@@ -99,7 +100,7 @@ export default function DailyReportPanel({ members }) {
             日报管理
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Excel 增量同步 · 日期+成员唯一键 · Hash Diff · 历史版本 · AI 标签
+            口语改写专业描述 · 一键转入 · Excel 增量同步 · 日期+成员唯一
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -128,6 +129,8 @@ export default function DailyReportPanel({ members }) {
           </button>
         </div>
       </div>
+
+      <RewriteComposer members={members} onIngested={() => loadReports()} />
 
       <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500">
         Excel 格式：首列为「日期」，其余列为成员姓名（需与成员管理中的姓名一致）。同一日期+成员出现两次会导入失败。
@@ -306,6 +309,326 @@ export default function DailyReportPanel({ members }) {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RewriteComposer({ members, onIngested }) {
+  const [styles, setStyles] = useState([])
+  const [styleId, setStyleId] = useState('')
+  const [promptDrafts, setPromptDrafts] = useState({})
+  const [rawText, setRawText] = useState('')
+  const [result, setResult] = useState('')
+  const [reportDate, setReportDate] = useState(beijingToday())
+  const [memberId, setMemberId] = useState(members[0]?.id || '')
+  const [existing, setExisting] = useState(null)
+  const [generating, setGenerating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [ingesting, setIngesting] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
+
+  const currentStyle = styles.find((s) => s.id === styleId)
+  const currentPrompt = promptDrafts[styleId] ?? currentStyle?.prompt ?? ''
+  const savedPrompt = currentStyle?.prompt ?? ''
+  const promptDirty = currentStyle ? currentPrompt.trim() !== (savedPrompt || '').trim() : false
+
+  useEffect(() => {
+    let alive = true
+    api.getDailyReportStyles()
+      .then((data) => {
+        if (!alive) return
+        const rows = data.styles || []
+        setStyles(rows)
+        const drafts = {}
+        rows.forEach((s) => { drafts[s.id] = s.prompt || '' })
+        setPromptDrafts(drafts)
+        setStyleId((prev) => prev || rows[0]?.id || '')
+      })
+      .catch((err) => alive && setError(err.message))
+    return () => { alive = false }
+  }, [])
+
+  useEffect(() => {
+    if (!memberId && members[0]?.id) setMemberId(members[0].id)
+  }, [members, memberId])
+
+  useEffect(() => {
+    if (!result || !reportDate || !memberId) {
+      setExisting(null)
+      return
+    }
+    let alive = true
+    api.getDailyReports({ date: reportDate, member: memberId, limit: 1 })
+      .then((data) => {
+        if (!alive) return
+        setExisting((data.reports || [])[0] || null)
+      })
+      .catch(() => alive && setExisting(null))
+    return () => { alive = false }
+  }, [result, reportDate, memberId])
+
+  const selectStyle = (id) => {
+    setStyleId(id)
+    setNotice(null)
+  }
+
+  const handleSavePrompt = async () => {
+    if (!styleId) return
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const saved = await api.saveDailyReportStyle(styleId, { prompt: currentPrompt })
+      setStyles((prev) => prev.map((s) => (s.id === styleId ? { ...s, ...saved } : s)))
+      setPromptDrafts((prev) => ({ ...prev, [styleId]: saved.prompt }))
+      setNotice('提示词已保存')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleGenerate = async () => {
+    if (!rawText.trim()) {
+      setError('请先输入一段工作描述')
+      return
+    }
+    if (!styleId) {
+      setError('请选择一种风格')
+      return
+    }
+    setGenerating(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const data = await api.rewriteDailyReport({
+        text: rawText.trim(),
+        style_id: styleId,
+        prompt: currentPrompt,
+      })
+      setResult(data.text || '')
+      if (data.degraded) setNotice('当前为降级模式，结果由规则模板生成，可在设置中配置大模型后重试')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const handleCopy = async () => {
+    const text = (result || '').trim()
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = text
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
+
+  const handleIngest = async () => {
+    if (!reportDate) {
+      setError('请选择日报日期')
+      return
+    }
+    if (!memberId) {
+      setError('请选择日报人员')
+      return
+    }
+    if (!result.trim()) {
+      setError('请先生成或填写日报内容')
+      return
+    }
+    setIngesting(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const data = await api.ingestDailyReport({
+        report_date: reportDate,
+        member_id: memberId,
+        content: result.trim(),
+      })
+      const actionText = data.action === 'appended' ? '已追加到当天日报' : '已新增当天日报'
+      setNotice(`${actionText} · ${data.member_name} · ${data.report_date}`)
+      setExisting({
+        id: data.report_id,
+        content: data.content,
+        version: data.version,
+        report_date: data.report_date,
+        member_id: data.member_id,
+        member_name: data.member_name,
+      })
+      onIngested?.()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setIngesting(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <Sparkles size={15} className="text-brand-600" />
+            生成专业描述
+          </h3>
+          <p className="text-xs text-slate-400 mt-1">输入口语描述，选风格后生成可编辑的日报正文，再一键转入当天日报。</p>
+        </div>
+      </div>
+
+      <textarea
+        value={rawText}
+        onChange={(e) => setRawText(e.target.value)}
+        rows={4}
+        placeholder="例如：今天下午跟产品对了一下登录页，修了两个样式问题，晚上把接口文档补上了。"
+        className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 leading-relaxed resize-y min-h-[96px]"
+      />
+
+      <div>
+        <div className="text-[11px] font-semibold text-slate-500 mb-2">风格</div>
+        <div className="flex flex-wrap gap-2">
+          {styles.map((s) => {
+            const active = s.id === styleId
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => selectStyle(s.id)}
+                className={`text-sm px-3 py-1.5 rounded-lg border ${
+                  active
+                    ? 'bg-brand-50 border-brand-400 text-brand-800 font-semibold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-brand-300'
+                }`}
+              >
+                {s.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {currentStyle && (
+        <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold text-slate-500">
+              {currentStyle.label} · 所用提示词
+              {promptDirty && <span className="ml-1.5 text-amber-600 font-normal">未保存</span>}
+            </div>
+            <button
+              type="button"
+              onClick={handleSavePrompt}
+              disabled={saving || !promptDirty}
+              className="flex items-center gap-1 text-[11px] text-white bg-slate-800 hover:bg-slate-700 disabled:opacity-40 px-2.5 py-1 rounded-lg"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+              保存
+            </button>
+          </div>
+          <textarea
+            value={currentPrompt}
+            onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [styleId]: e.target.value }))}
+            rows={6}
+            className="w-full text-xs font-mono border border-slate-200 bg-white rounded-lg px-3 py-2 leading-relaxed resize-y min-h-[120px]"
+          />
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleGenerate}
+        disabled={generating}
+        className="flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 px-4 py-2 rounded-lg"
+      >
+        {generating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+        {generating ? '生成中...' : '生成专业描述'}
+      </button>
+
+      {error && (
+        <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>
+      )}
+      {notice && (
+        <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">{notice}</div>
+      )}
+
+      {result !== '' && (
+        <div className="border-t border-slate-100 pt-4 space-y-4">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="text-[11px] font-semibold text-slate-500">生成结果（可修改）</div>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="flex items-center gap-1 text-[11px] text-slate-600 border border-slate-200 hover:border-brand-300 px-2.5 py-1 rounded-lg"
+              >
+                {copied ? <CheckCircle2 size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                {copied ? '已复制' : '一键复制'}
+              </button>
+            </div>
+            <textarea
+              value={result}
+              onChange={(e) => setResult(e.target.value)}
+              rows={6}
+              className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 leading-relaxed resize-y min-h-[120px]"
+            />
+          </div>
+
+          <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+            <div className="text-[11px] font-semibold text-slate-500">转入日报（日期 + 人员 + 内容）</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">日期（{TZ_LABEL}）</label>
+                <input
+                  type="date"
+                  value={reportDate}
+                  onChange={(e) => setReportDate(e.target.value)}
+                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-2 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">人员</label>
+                <select
+                  value={memberId}
+                  onChange={(e) => setMemberId(e.target.value)}
+                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-2 bg-white"
+                >
+                  <option value="">请选择</option>
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {existing ? (
+              <div className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                当天已有 {existing.member_name || '该成员'} 的日报（v{existing.version}），一键转入将追加在原文之后。
+                <div className="mt-1 text-slate-500 whitespace-pre-wrap max-h-20 overflow-hidden">{existing.content}</div>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400">当天尚无该成员日报，一键转入将新增一条。</div>
+            )}
+            <button
+              type="button"
+              onClick={handleIngest}
+              disabled={ingesting}
+              className="flex items-center gap-1.5 text-sm font-medium text-white bg-slate-800 hover:bg-slate-700 disabled:opacity-50 px-4 py-2 rounded-lg"
+            >
+              {ingesting ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
+              {ingesting ? '转入中...' : '一键转入'}
+            </button>
           </div>
         </div>
       )}

@@ -71,9 +71,44 @@ def process_event_submission(event_time, involved_members, raw_summary, scene=No
             intensity=emo.get("intensity", 5),
         )
 
+    analysis = None
+    try:
+        from growth.repository import get_event as get_structured_event
+        from growth.analyzer import analyze_event, persist_analysis
+        analysis = persist_analysis(event_id, analyze_event(get_structured_event(event_id)))
+    except Exception:
+        pass
+
+    try:
+        from temporal_graph.events import apply_from_team_event
+        apply_from_team_event({
+            "id": event_id,
+            "event_time": event_time,
+            "involved_members": involved_members,
+            "raw_summary": raw_summary,
+            "scene": scene,
+        })
+    except Exception:
+        pass
+
+    facts_out = {"created": 0}
+    try:
+        from fact_governance.bridge import ingest_from_logged_event
+        facts_out = ingest_from_logged_event({
+            "id": event_id,
+            "event_time": event_time,
+            "involved_members": involved_members,
+            "raw_summary": raw_summary,
+            "scene": scene,
+            "created_by": (involved_members or [None])[0],
+        }, analysis=analysis, parsed=parsed)
+    except Exception as exc:
+        facts_out = {"created": 0, "error": str(exc)}
+
     return {
         "event_id": event_id,
         "mock_mode": is_mock_mode(),
+        "facts": facts_out,
         "parsed_analysis": {
             "task": parsed["task"],
             "scene": parsed.get("scene", "未分类"),
@@ -155,6 +190,12 @@ def reanalyze_event(event_id):
             emotion=emo["emotion"],
             intensity=emo.get("intensity", 5),
         )
+
+    try:
+        from growth.service import reanalyze_structured
+        return reanalyze_structured(event_id)
+    except Exception:
+        pass
 
     return {
         "event_id": event_id,

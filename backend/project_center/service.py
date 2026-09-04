@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from timeutil import today as beijing_today
+
 from database import get_member, get_all_members, get_daily_reports
 
 from . import repository as repo
@@ -40,7 +42,7 @@ HEALTH_LABEL = {
 
 
 def _today():
-    return datetime.now().strftime("%Y-%m-%d")
+    return beijing_today()
 
 
 def normalize_status(raw, default="open"):

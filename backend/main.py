@@ -26,6 +26,10 @@ API 路由总览:
   GET  /api/daily-report/import/{task_id}    - 导入任务状态
   GET  /api/daily-report/import              - 导入任务列表
   GET  /api/daily-report                     - 查询日报
+  GET  /api/daily-report/styles              - 日报改写风格提示词
+  PUT  /api/daily-report/styles/{id}         - 保存风格提示词
+  POST /api/daily-report/rewrite             - 按风格生成专业描述
+  POST /api/daily-report/ingest              - 一键转入（有则追加，无则新增）
   GET  /api/daily-report/{id}/history        - 日报历史版本
   GET  /api/report/statistics/member         - 人员投入统计
   GET  /api/calendar/events                  - 日历事件（含日报）
@@ -52,9 +56,7 @@ API 路由总览:
 
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -63,8 +65,15 @@ from typing import Optional
 # 确保能找到同目录模块
 sys.path.insert(0, os.path.dirname(__file__))
 
+# 本进程不走本机 7897 代理（不改用户/系统环境变量）
+from local_proxy import disable_local_proxy
+disable_local_proxy()
+
+from dotenv import load_dotenv
+
 # 加载 .env 配置(必须在 import llm_client 之前)
 load_dotenv(Path(__file__).parent / ".env")
+disable_local_proxy()
 
 from database import (
     init_db,
@@ -99,7 +108,14 @@ from ai_native_engine import (
     get_ranking_status,
     update_evaluation_scope,
 )
-from daily_report_service import start_import_task, get_import_task_status
+from daily_report_service import (
+    start_import_task,
+    get_import_task_status,
+    list_rewrite_styles,
+    save_rewrite_style,
+    rewrite_report_text,
+    ingest_generated_report,
+)
 from organization_graph import router as oig_router
 from organization_graph.repository.facade import bootstrap_graph
 from promotion import router as promo_router
@@ -107,6 +123,12 @@ from promotion.repository import get_promo_store
 from newcomer import router as newcomer_router, task_router as newcomer_task_router
 from team_situation import router as situation_router, start_scheduler
 from project_center import router as project_router
+from growth import router as growth_router
+from twin import router as twin_router
+from entity_governance import router as governance_router, start_scheduler as start_entity_governance_scheduler
+from knowledge_governance import router as kg_router
+from temporal_graph import router as temporal_router
+from fact_governance import router as fact_router
 
 # ========== 初始化 ==========
 
@@ -120,29 +142,68 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(growth_router)
+app.include_router(twin_router)
 app.include_router(oig_router)
 app.include_router(promo_router)
 app.include_router(newcomer_router)
 app.include_router(newcomer_task_router)
 app.include_router(situation_router)
 app.include_router(project_router)
+app.include_router(governance_router)
+app.include_router(kg_router)
+app.include_router(temporal_router)
+app.include_router(fact_router)
 
 
 @app.on_event("startup")
 def startup():
     init_db()
+    from entity_governance.repository import get_gov_store
+    from knowledge_governance.repository import get_kg_store
+    from knowledge_governance.seed import seed_ontology
+    from temporal_graph.repository import get_temporal_store
+    from fact_governance.repository import get_fact_store
+    get_gov_store()
+    get_kg_store()
+    get_temporal_store()
+    get_fact_store()
+    seed_ontology(force=False)
     bootstrap_graph()
     get_promo_store()
     start_scheduler()
+    start_entity_governance_scheduler()
 
 
 # ========== 请求/响应模型 ==========
 
 class EventLogRequest(BaseModel):
     event_time: str
-    involved_members: list[str]
-    summary: str
+    involved_members: Optional[list[str]] = None
+    summary: Optional[str] = ""
     scene: Optional[str] = None
+    event_type: Optional[str] = None
+    event_tag: Optional[str] = None
+    subjects: Optional[list[dict]] = None
+    related_persons: Optional[list[str]] = None
+    related_project_id: Optional[str] = None
+    related_stage_id: Optional[str] = None
+    related_role_id: Optional[str] = None
+    related_newcomer_id: Optional[str] = None
+    created_by: Optional[str] = None
+    source: Optional[str] = "manual"
+    background: Optional[str] = ""
+    facts: Optional[str] = ""
+    expected: Optional[str] = ""
+    difference: Optional[str] = ""
+    actions: Optional[str] = ""
+    result: Optional[str] = ""
+    evidence: Optional[str] = ""
+    judgement: Optional[str] = ""
+    attempts: Optional[str] = ""
+    help_request: Optional[str] = ""
+    extra_fields: Optional[dict] = None
+    target_person_id: Optional[str] = None
 
 
 class MemberCreateRequest(BaseModel):
@@ -188,14 +249,36 @@ class EvaluationScopeRequest(BaseModel):
     minimum_match_score: Optional[float] = None
 
 
+class DailyReportStyleUpdate(BaseModel):
+    prompt: str
+    label: Optional[str] = None
+
+
+class DailyReportRewriteRequest(BaseModel):
+    text: str
+    style_id: str
+    prompt: Optional[str] = None
+
+
+class DailyReportIngestRequest(BaseModel):
+    report_date: str
+    member_id: str
+    content: str
+
+
 # ========== 基础接口 ==========
 
 @app.get("/api/health")
 def health():
+    from timeutil import TZ_LABEL, TZ_NAME, UTC_OFFSET, now_iso
     return {
         "status": "ok",
         "mock_mode": is_mock_mode(),
         "message": "降级模式（未配置 API Key）" if is_mock_mode() else "DeepSeek 已连接",
+        "timezone": TZ_NAME,
+        "timezone_label": TZ_LABEL,
+        "utc_offset": UTC_OFFSET,
+        "server_time": now_iso(),
     }
 
 
@@ -367,11 +450,24 @@ def reanalyze_all_events_api():
 @app.post("/api/events/log")
 def log_event(req: EventLogRequest):
     """
-    录入新事件：保存原文 → LLM 解析 → 写入关系/情绪增量 → 返回解析结果
+    录入新事件：结构化框架优先；无类型时走原文解析，仍会生成可追溯证据。
     """
+    data = req.model_dump()
+    structured = bool(
+        data.get("event_type") or data.get("event_tag")
+        or data.get("background") or data.get("facts") or data.get("judgement")
+    )
+    if structured:
+        from growth.service import log_structured_event
+        try:
+            result = log_structured_event(data)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"status": "success", **result}
+
     if not req.involved_members:
         raise HTTPException(status_code=400, detail="请至少选择一名涉及成员")
-    if not req.summary.strip():
+    if not (req.summary or "").strip():
         raise HTTPException(status_code=400, detail="事件摘要不能为空")
 
     result = process_event_submission(
@@ -550,6 +646,42 @@ def daily_report_list(
         m = mmap.get(r["member_id"])
         r["member_name"] = m["name"] if m else r["member_id"]
     return {"reports": rows, "count": len(rows)}
+
+
+@app.get("/api/daily-report/styles")
+def daily_report_styles():
+    return {"styles": list_rewrite_styles()}
+
+
+@app.put("/api/daily-report/styles/{style_id}")
+def daily_report_style_update(style_id: str, req: DailyReportStyleUpdate):
+    try:
+        row = save_rewrite_style(style_id, req.prompt, label=req.label)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="风格不存在")
+    return row
+
+
+@app.post("/api/daily-report/rewrite")
+def daily_report_rewrite(req: DailyReportRewriteRequest):
+    try:
+        return rewrite_report_text(req.text, req.style_id, prompt_override=req.prompt)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="风格不存在")
+
+
+@app.post("/api/daily-report/ingest")
+def daily_report_ingest(req: DailyReportIngestRequest):
+    try:
+        return ingest_generated_report(req.report_date, req.member_id, req.content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="成员不存在")
 
 
 @app.get("/api/daily-report/{report_id}/history")

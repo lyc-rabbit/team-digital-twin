@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api/client.js'
 import ForceGraph, { TYPE_COLORS, REL_COLORS } from './ForceGraph.jsx'
+import { RecordEventButton } from './EventRecorderContext.jsx'
 
 const TABS = [
   { id: 'graph', label: '关系图谱', icon: GitBranch },
@@ -22,12 +23,28 @@ const REL_LABELS = {
   CONFLICT: '冲突',
   CONTROL_RESOURCE: '资源控制',
   INFORMAL_MEMBER: '非正式组织',
-  OWNER: '负责',
-  HAS_ROLE: '担任角色',
-  BELONGS_TO: '隶属',
+  OWNER: '组织挂名',
+  ORG_RESPONSIBILITY: '组织责任',
+  EXECUTION_RESPONSIBILITY: '执行责任',
+  MANAGEMENT_RESPONSIBILITY: '管理责任',
+  REPORTING_RESPONSIBILITY: '汇报责任',
+  ACHIEVEMENT_OWNERSHIP: '成果归属',
+  MADE_CONTRIBUTION: '作出贡献',
+  CONTRIBUTES_TO: '贡献于成果',
+  PERFORMED_TRAINING: '实施培养',
+  TRAINING_TARGET: '培养对象',
   WORKS_ON: '参与项目',
   HAS_KNOWLEDGE: '掌握知识',
   INVOLVED_IN: '参与事件',
+  HAS_SUB_RESOURCE: '下属资源',
+  HAS_RESOURCE: '产出资源',
+  IS_A: '属于类型',
+  PART_OF: '从属于',
+  USES: '使用',
+  DEPENDS_ON: '依赖',
+  CONTRIBUTE_TO: '贡献于',
+  CONTROL_KEY_RESOURCE: '掌握关键资源',
+  MANAGES: '管理',
 }
 
 const TYPE_LABELS = {
@@ -39,12 +56,23 @@ const TYPE_LABELS = {
   Knowledge: '知识',
   Event: '事件',
   InformalGroup: '非正式组织',
+  Achievement: '成果',
+  Contribution: '贡献',
+  TrainingAction: '培养行为',
+  CapabilityEvidence: '能力证据',
+  ProjectStage: '项目阶段',
+  Capability: '能力',
 }
 
 const DEFAULT_TYPES = ['Person', 'Project', 'InformalGroup', 'Resource', 'Department']
 const DEFAULT_RELS = [
   'REPORT_TO', 'COLLABORATE_WITH', 'MENTOR', 'TRUST', 'CONFLICT',
   'CONTROL_RESOURCE', 'INFORMAL_MEMBER', 'OWNER', 'WORKS_ON',
+  'ORG_RESPONSIBILITY', 'EXECUTION_RESPONSIBILITY', 'MANAGEMENT_RESPONSIBILITY',
+  'REPORTING_RESPONSIBILITY', 'ACHIEVEMENT_OWNERSHIP', 'MADE_CONTRIBUTION',
+  'PERFORMED_TRAINING',
+  'HAS_SUB_RESOURCE', 'HAS_RESOURCE',
+  'IS_A', 'USES', 'DEPENDS_ON', 'CONTROL_KEY_RESOURCE', 'CONTRIBUTE_TO',
 ]
 
 export default function InfluenceGraphPanel({ members }) {
@@ -64,7 +92,9 @@ export default function InfluenceGraphPanel({ members }) {
   const [extractOpen, setExtractOpen] = useState(false)
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
+  const [applyingExtract, setApplyingExtract] = useState(false)
   const [extractResult, setExtractResult] = useState(null)
+  const [selectedRels, setSelectedRels] = useState([])
   const mountedRef = useRef(true)
 
   const loadAll = async () => {
@@ -135,14 +165,42 @@ export default function InfluenceGraphPanel({ members }) {
     if (!extractText.trim()) return
     setExtracting(true)
     setExtractResult(null)
+    setSelectedRels([])
     try {
       const res = await api.extractOig(extractText.trim(), 'document')
       setExtractResult(res)
-      await loadAll()
+      const rels = res.extraction?.relations || []
+      setSelectedRels(rels.map((_, i) => i))
     } catch (err) {
       setExtractResult({ error: err.message })
     } finally {
       setExtracting(false)
+    }
+  }
+
+  const toggleRel = (idx) => {
+    setSelectedRels((prev) => (prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]))
+  }
+
+  const handleApplyExtract = async () => {
+    const all = extractResult?.extraction?.relations || []
+    const entities = extractResult?.extraction?.entities || []
+    const relations = all.filter((_, i) => selectedRels.includes(i))
+    if (!relations.length && !entities.length) return
+    setApplyingExtract(true)
+    try {
+      const res = await api.applyOigExtract({
+        text: extractText.trim(),
+        source_type: 'document',
+        entities,
+        relations,
+      })
+      setExtractResult(res)
+      await loadAll()
+    } catch (err) {
+      setExtractResult((prev) => ({ ...prev, error: err.message }))
+    } finally {
+      setApplyingExtract(false)
     }
   }
 
@@ -183,10 +241,11 @@ export default function InfluenceGraphPanel({ members }) {
             </span>
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            人员 · 岗位 · 项目 · 资源 · 知识 · 事件的动态影响关系 · 晋升推演计算基础
+            人员 · 岗位 · 项目 · 资源 · 知识 · 事件的动态影响关系。重建不会自动采纳未确认的本体建议。
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <RecordEventButton context={{ source: 'relationship' }} />
           <button
             onClick={() => { setExtractOpen(true); setExtractResult(null) }}
             className="flex items-center gap-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-lg"
@@ -330,8 +389,8 @@ export default function InfluenceGraphPanel({ members }) {
               title="怎么看协作圈层"
               points={[
                 '左边是按日常协作自动分出来的圈子：经常一起干活的人会聚在一起。这不是部门编制，一个人实际在跟谁混，看这里更准。',
-                '右边是跨圈关键人：两边圈子不怎么直接来往，但都连着这个人。分越高，越像桥梁；他若离开，两边可能断联。',
-                '约束系数低、桥梁分高，说明他不困在一个小圈子里。桥接列出的是「目前互不相连、但都通过他」的两个人。',
+                '右边桥梁分 = (1 − 圈子束缚) × 100。束缚越低分越高：同样连 7 个人，邻居彼此已经抱团，分会更低；邻居分属不同圈子且互不相连，分会更高。',
+                '直接连接人数相同，不等于分数相同。桥接列出的是「这两人目前没连上、但都经过他」。实体合并后请刷新本页，圈层会按合并后的人重算。',
               ]}
             />
             <CommunityView data={community} />
@@ -380,7 +439,7 @@ export default function InfluenceGraphPanel({ members }) {
               </button>
             </div>
             <p className="text-xs text-slate-500 mb-2">
-              粘贴邮件、会议纪要、周报或日报。系统将抽取人员 / 项目 / 事件关系并写入图谱。
+              粘贴邮件、会议纪要、周报或日报。系统会抽取 3 次并去重展示；确认后登记为事实并写入图谱，不再绕过事实层。
             </p>
             <textarea
               value={extractText}
@@ -389,25 +448,65 @@ export default function InfluenceGraphPanel({ members }) {
               className="w-full text-sm border border-slate-200 rounded-xl p-3 outline-none focus:border-brand-400"
               placeholder="例如：张三帮助李四解决 Agent 部署问题，两人共同负责 AI 客服二期。"
             />
-            <div className="flex justify-end mt-3">
+            <div className="flex justify-end gap-2 mt-3">
               <button
                 onClick={handleExtract}
-                disabled={extracting || !extractText.trim()}
+                disabled={extracting || applyingExtract || !extractText.trim()}
                 className="flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 px-3.5 py-2 rounded-lg"
               >
                 {extracting ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                抽取并写入
+                {extracting ? '抽取中（3 次）' : '抽取预览'}
+              </button>
+              <button
+                onClick={handleApplyExtract}
+                disabled={
+                  applyingExtract || extracting || !extractResult?.pending_confirm
+                  || !(selectedRels.length || (extractResult.extraction?.entities || []).length)
+                }
+                className="flex items-center gap-1.5 text-sm font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 px-3.5 py-2 rounded-lg"
+              >
+                {applyingExtract ? <Loader2 size={14} className="animate-spin" /> : null}
+                确认写入事实
               </button>
             </div>
             {extractResult && (
-              <div className="mt-3 text-xs bg-slate-50 rounded-xl p-3 max-h-48 overflow-y-auto">
+              <div className="mt-3 text-xs bg-slate-50 rounded-xl p-3 max-h-56 overflow-y-auto">
                 {extractResult.error ? (
                   <span className="text-red-600">{extractResult.error}</span>
-                ) : (
+                ) : extractResult.pending_confirm ? (
                   <>
                     <div className="text-slate-500 mb-1">
-                      写入节点 {extractResult.applied?.nodes ?? 0} · 关系 {extractResult.applied?.edges ?? 0}
+                      候选节点 {(extractResult.extraction?.entities || []).length} · 关系 {(extractResult.extraction?.relations || []).length}
+                      {extractResult.runs ? ` · 已合并 ${extractResult.runs} 次抽取` : ''}
                       {extractResult.degraded ? ' · 降级规则抽取' : ''}
+                      {' · 未写入'}
+                    </div>
+                    {(extractResult.extraction?.relations || []).map((r, i) => (
+                      <label key={i} className="flex items-start gap-2 text-slate-700 py-0.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={selectedRels.includes(i)}
+                          onChange={() => toggleRel(i)}
+                        />
+                        <span>
+                          {r.source} —{r.relation}→ {r.target}
+                          <span className="text-slate-400">
+                            {' '}({Math.round((r.confidence || 0) * 100)}%{r.seen_in_runs ? ` · ${r.seen_in_runs}/${extractResult.runs || 3} 次` : ''})
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                    {!(extractResult.extraction?.relations || []).length && (
+                      <div className="text-slate-400">未识别到可用关系</div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="text-emerald-700 mb-1">
+                      已确认事实 {extractResult.facts?.confirmed ?? extractResult.applied?.edges ?? 0}
+                      {extractResult.facts?.pending ? ` · 冲突待处理 ${extractResult.facts.pending}` : ''}
+                      {extractResult.facts?.skipped ? ` · 已存在 ${extractResult.facts.skipped}` : ''}
                     </div>
                     {(extractResult.extraction?.relations || []).map((r, i) => (
                       <div key={i} className="text-slate-700">
@@ -415,9 +514,6 @@ export default function InfluenceGraphPanel({ members }) {
                         <span className="text-slate-400"> ({Math.round((r.confidence || 0) * 100)}%)</span>
                       </div>
                     ))}
-                    {!(extractResult.extraction?.relations || []).length && (
-                      <div className="text-slate-400">未识别到可用关系</div>
-                    )}
                   </>
                 )}
               </div>
@@ -494,6 +590,7 @@ function NodeDetail({ node, edges, nodes, profile }) {
           {TYPE_LABELS[node.type] || node.type}
           {node.position ? ` · ${node.position}` : ''}
           {node.department ? ` · ${node.department}` : ''}
+          {node.ontology_type ? ` · 本体 ${node.ontology_type}` : ''}
         </div>
       </div>
       {node.type === 'Person' && (
@@ -519,6 +616,7 @@ function NodeDetail({ node, edges, nodes, profile }) {
               <div key={e.id} className="text-[11px] text-slate-600 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: REL_COLORS[e.relation] }} />
                 <span className="text-slate-400">{REL_LABELS[e.relation] || e.relation}</span>
+                {e.properties?.inferred ? <span className="text-[10px] text-brand-600">推断</span> : null}
                 <span className="truncate">{other?.name || otherId}</span>
                 <span className="ml-auto text-slate-400">{Math.round((e.properties?.strength || 0) * 100)}</span>
               </div>
@@ -614,11 +712,16 @@ function CommunityView({ data }) {
               <span className="text-sm font-bold text-brand-600">{h.hole_score}</span>
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              桥梁分越高越关键 · 圈子束缚 {h.constraint} · 直接连接 {h.degree} 人
+              {h.formula || `(1 − ${h.constraint}) × 100`} = {h.hole_score}
+              {' · '}束缚 {h.constraint}（越低越好）
+              {' · '}直接连接 {h.degree} 人
+              {h.communities_spanned > 1 ? ` · 跨 ${h.communities_spanned} 个圈子` : ''}
             </div>
             {h.bridges?.length > 0 && (
               <div className="text-[11px] text-slate-600 mt-2">
-                桥接：{h.bridges.slice(0, 4).map((b) => `${b.from}↔${b.to}`).join('、')}
+                桥接 {h.cross_bridge_count || 0} 对跨圈
+                {h.bridge_count ? ` / ${h.bridge_count} 对未直连` : ''}
+                ：{h.bridges.slice(0, 4).map((b) => `${b.from}↔${b.to}`).join('、')}
               </div>
             )}
           </div>

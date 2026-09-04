@@ -7,40 +7,52 @@ from llm_client import get_client, is_mock_mode, _log_llm_failure, _get_env
 from ..ontology.relations import (
     RELATION_TYPES,
     REL_COLLABORATE,
-    REL_MENTOR,
     REL_CONFLICT,
-    REL_TRUST,
-    REL_OWNER,
+    REL_EXECUTION_RESPONSIBILITY,
+    REL_ORG_RESPONSIBILITY,
     REL_REPORT_TO,
+    REL_TRUST,
     relation_template,
 )
 from ..ontology.nodes import node_template
 from ..repository.facade import get_store
 
 
-EXTRACT_SYSTEM = """你是组织知识图谱抽取器。从文本中抽取人员、项目、事件及其关系。
-只使用给定成员名单中的姓名进行匹配。关系类型必须是以下之一：
-REPORT_TO, COLLABORATE_WITH, MENTOR, TRUST, CONFLICT, CONTROL_RESOURCE, OWNER, INFORMAL_MEMBER
+EXTRACT_SYSTEM = """你是组织知识图谱抽取器。从文本中抽取人员、项目、成果、贡献、培养行为及其关系。
+只使用给定成员名单中的姓名进行匹配。
+
+关系类型必须是以下之一：
+REPORT_TO, COLLABORATE_WITH, TRUST, CONFLICT, CONTROL_RESOURCE, INFORMAL_MEMBER,
+ORG_RESPONSIBILITY, EXECUTION_RESPONSIBILITY, MANAGEMENT_RESPONSIBILITY, REPORTING_RESPONSIBILITY,
+OWNER, WORKS_ON, MADE_CONTRIBUTION, CONTRIBUTES_TO, ACHIEVEMENT_OWNERSHIP,
+PERFORMED_TRAINING, TRAINING_TARGET
+
+禁止跨语义域猜测：
+- 不能因为 A 是 B 的上级 / 存在 REPORT_TO 就输出 MENTOR 或培养。
+- 不能因为 A 是项目 OWNER / 负责人 就输出技术贡献或 HAS_CAPABILITY。
+- 不能因为成果归 A 就输出 A 对成果的 TechnicalContribution。
+- 成果汇报请用 REPORTING_RESPONSIBILITY 或 contribution_type=reporting，不要写成技术贡献。
+培养必须是文本里明确的指导/反馈/Code Review 行为，写成 TrainingAction + PERFORMED_TRAINING / TRAINING_TARGET。
 
 输出 JSON：
 {
   "entities": [
-    {"type":"Person|Project|Event|Resource|Knowledge|InformalGroup","name":"...","attributes":{}}
+    {"type":"Person|Project|Event|Resource|Knowledge|Achievement|Contribution|TrainingAction","name":"...","attributes":{}}
   ],
   "relations": [
     {
       "source":"张三",
-      "relation":"MENTOR",
-      "target":"李四",
+      "relation":"EXECUTION_RESPONSIBILITY",
+      "target":"AI客服",
       "confidence":0.87,
-      "properties":{"skill":"Agent开发","evidence":["..."]}
+      "properties":{"evidence":["..."]}
     }
   ]
 }
 没有把握的关系不要输出。confidence 范围 0-1。"""
 
 
-def extract_relations(text, members, source_type="document"):
+def extract_relations(text, members, source_type="document", temperature=0.0):
     """
     输入非结构化文本，输出 {entities, relations, mock_mode, degraded}
     """
@@ -73,7 +85,7 @@ def extract_relations(text, members, source_type="document"):
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.0,
+            temperature=float(temperature if temperature is not None else 0.0),
             max_tokens=2048,
         )
         content = response.choices[0].message.content
@@ -92,8 +104,68 @@ def extract_relations(text, members, source_type="document"):
         return result
 
 
-def apply_extraction(result, members=None):
-    """把抽取结果写入图谱，返回写入的节点/边数量。"""
+def merge_extraction_runs(runs):
+    """多次抽取结果按 实体(type,name) / 关系(source,relation,target) 去重，置信度取最高。"""
+    entities = {}
+    relations = {}
+    for idx, run in enumerate(runs or []):
+        for ent in run.get("entities") or []:
+            name = (ent.get("name") or "").strip()
+            if not name:
+                continue
+            key = ((ent.get("type") or "Entity"), name)
+            entities.setdefault(key, dict(ent, name=name))
+        for rel in run.get("relations") or []:
+            src = (rel.get("source") or "").strip()
+            tgt = (rel.get("target") or "").strip()
+            kind = rel.get("relation") or REL_COLLABORATE
+            if not src or not tgt:
+                continue
+            key = (src, kind, tgt)
+            conf = float(rel.get("confidence") or 0)
+            prev = relations.get(key)
+            if not prev:
+                item = dict(rel, source=src, target=tgt, relation=kind, seen_in_runs=1)
+                item["confidence"] = conf
+                relations[key] = item
+                continue
+            prev["seen_in_runs"] = int(prev.get("seen_in_runs") or 1) + 1
+            if conf > float(prev.get("confidence") or 0):
+                props = dict(prev.get("properties") or {})
+                extra = dict(rel.get("properties") or {})
+                ev = list(props.get("evidence") or [])
+                for x in extra.get("evidence") or []:
+                    if x not in ev:
+                        ev.append(x)
+                extra["evidence"] = ev[:20]
+                merged = dict(rel, source=src, target=tgt, relation=kind)
+                merged["properties"] = extra
+                merged["confidence"] = conf
+                merged["seen_in_runs"] = prev["seen_in_runs"]
+                relations[key] = merged
+            else:
+                props = dict(prev.get("properties") or {})
+                ev = list(props.get("evidence") or [])
+                for x in (rel.get("properties") or {}).get("evidence") or []:
+                    if x not in ev:
+                        ev.append(x)
+                props["evidence"] = ev[:20]
+                prev["properties"] = props
+    any_ok = any(not r.get("degraded") for r in (runs or []))
+    return {
+        "entities": list(entities.values()),
+        "relations": sorted(relations.values(), key=lambda x: -float(x.get("confidence") or 0)),
+        "mock_mode": all(bool(r.get("mock_mode")) for r in (runs or [])) if runs else False,
+        "degraded": not any_ok if runs else True,
+        "runs": len(runs or []),
+    }
+
+
+def apply_extraction(result, members=None, source_type="document"):
+    """把抽取结果写入图谱。实体必须先 Normalize → Resolve，禁止直接 CREATE。"""
+    from entity_governance.service import follow_canonical, resolve_entity
+    from entity_governance.types import to_entity_type
+
     store = get_store()
     members = members or []
     name_to_id = {m["name"]: m["id"] for m in members}
@@ -102,6 +174,7 @@ def apply_extraction(result, members=None):
 
     written_nodes = 0
     written_edges = 0
+    resolved_log = []
 
     for ent in result.get("entities") or []:
         etype = ent.get("type") or "Event"
@@ -112,11 +185,33 @@ def apply_extraction(result, members=None):
             if name not in name_to_id:
                 continue
             continue
-        nid = _id_of(etype, name)
         attrs = ent.get("attributes") or {}
-        store.upsert_node(node_template(etype, nid, name, **attrs))
-        written_nodes += 1
+        resolved = resolve_entity(
+            to_entity_type(etype),
+            name,
+            attributes=attrs,
+            source={"type": source_type},
+            create_if_new=True,
+        )
+        nid = resolved["canonical_entity_id"]
+        display = resolved.get("canonical_name") or name
+        existing = store.get_node(nid)
+        if not existing:
+            node = node_template(etype, nid, display, **attrs)
+            node["entity_status"] = "ACTIVE"
+            node["canonical_entity_id"] = nid
+            store.upsert_node(node)
+            written_nodes += 1
+        elif resolved.get("via") == "created":
+            written_nodes += 1
         name_to_id.setdefault(name, nid)
+        resolved_log.append({
+            "name": name,
+            "decision": resolved.get("decision"),
+            "canonical_entity_id": nid,
+            "via": resolved.get("via"),
+            "score": resolved.get("score"),
+        })
 
     for rel in result.get("relations") or []:
         relation = rel.get("relation") or REL_COLLABORATE
@@ -124,6 +219,10 @@ def apply_extraction(result, members=None):
             continue
         src = _resolve(rel.get("source"), name_to_id)
         tgt = _resolve(rel.get("target"), name_to_id)
+        if src:
+            src = follow_canonical(src)
+        if tgt:
+            tgt = follow_canonical(tgt)
         if not src or not tgt or src == tgt:
             continue
         confidence = float(rel.get("confidence") or 0.6)
@@ -138,7 +237,7 @@ def apply_extraction(result, members=None):
         store.upsert_edge(src, tgt, relation, edge["properties"])
         written_edges += 1
 
-    return {"nodes": written_nodes, "edges": written_edges}
+    return {"nodes": written_nodes, "edges": written_edges, "resolved": resolved_log}
 
 
 def _resolve(name, name_to_id):
@@ -184,13 +283,15 @@ def _normalize(raw, members):
         rel = r.get("relation") or REL_COLLABORATE
         if rel not in RELATION_TYPES:
             mapping = {
-                "mentor": REL_MENTOR,
                 "collaborate": REL_COLLABORATE,
                 "collaborate_with": REL_COLLABORATE,
                 "conflict": REL_CONFLICT,
                 "trust": REL_TRUST,
                 "report_to": REL_REPORT_TO,
-                "owner": REL_OWNER,
+                "owner": REL_ORG_RESPONSIBILITY,
+                "org_responsibility": REL_ORG_RESPONSIBILITY,
+                "execution_responsibility": REL_EXECUTION_RESPONSIBILITY,
+                "mentor": REL_COLLABORATE,
             }
             rel = mapping.get(str(rel).lower(), REL_COLLABORATE)
         r = dict(r)
@@ -220,7 +321,11 @@ def _mock_extract(text, members):
     if len(hit) >= 2:
         a, b = hit[0]["name"], hit[1]["name"]
         if any(k in text for k in ("帮助", "指导", "带教", "培养", "教会", "解决")):
-            add(a, REL_MENTOR, b, 0.75, skill=_guess_skill(text), evidence=[evidence])
+            entities.append({
+                "type": "TrainingAction",
+                "name": f"培养行为:{evidence[:16]}",
+                "attributes": {"action_type": "指导", "evidence": evidence},
+            })
         elif any(k in text for k in ("冲突", "争议", "反对", "分歧", "撕", "抱怨")):
             add(a, REL_CONFLICT, b, 0.7, reason=evidence, impact=70, evidence=[evidence])
         elif any(k in text for k in ("汇报", "向", "主管")):
@@ -233,7 +338,9 @@ def _mock_extract(text, members):
         proj = _guess_project(text)
         if proj:
             entities.append({"type": "Project", "name": proj, "attributes": {"status": "running"}})
-            add(hit[0]["name"], REL_OWNER, proj, 0.7, evidence=[evidence])
+            add(hit[0]["name"], REL_ORG_RESPONSIBILITY, proj, 0.7, evidence=[evidence])
+            if any(k in text for k in ("主导", "执行", "落地", "开发")):
+                add(hit[0]["name"], REL_EXECUTION_RESPONSIBILITY, proj, 0.65, evidence=[evidence])
 
     return {"entities": entities, "relations": relations}
 
