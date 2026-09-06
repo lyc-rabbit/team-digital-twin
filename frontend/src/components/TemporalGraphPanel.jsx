@@ -26,8 +26,8 @@ const PRED = {
   CONTROL_KEY_RESOURCE: '掌握关键资源',
 }
 
-export default function TemporalGraphPanel({ members = [] }) {
-  const [tab, setTab] = useState('snapshot')
+export default function TemporalGraphPanel({ members = [], initialTab = 'snapshot' }) {
+  const [tab, setTab] = useState(initialTab)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -61,6 +61,10 @@ export default function TemporalGraphPanel({ members = [] }) {
     const g = await api.getOigGraph({ types: 'Project' })
     setProjects((g.nodes || []).filter((n) => n.type === 'Project'))
   }
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   useEffect(() => {
     loadOverview().catch((e) => setError(e.message)).finally(() => setLoading(false))

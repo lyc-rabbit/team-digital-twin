@@ -118,8 +118,8 @@ function ResultCard({ result }) {
   )
 }
 
-export default function SimulationLabPanel({ members = [] }) {
-  const [tab, setTab] = useState('simulate')
+export default function SimulationLabPanel({ members = [], initialTab = 'simulate' }) {
+  const [tab, setTab] = useState(initialTab)
   const [boot, setBoot] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -148,6 +148,10 @@ export default function SimulationLabPanel({ members = [] }) {
   const [actualDays, setActualDays] = useState('')
 
   const people = boot?.members?.length ? boot.members : members.map((m) => ({ id: m.id, name: m.name, role: m.role }))
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   useEffect(() => {
     api.getTwinBootstrap().then((d) => {

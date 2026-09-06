@@ -75,8 +75,107 @@ const DEFAULT_RELS = [
   'IS_A', 'USES', 'DEPENDS_ON', 'CONTROL_KEY_RESOURCE', 'CONTRIBUTE_TO',
 ]
 
-export default function InfluenceGraphPanel({ members }) {
-  const [tab, setTab] = useState('graph')
+export const GRAPH_PRESETS = {
+  overview: {
+    title: '关系总览',
+    subtitle: '人员 · 岗位 · 项目 · 资源 · 知识 · 事件的动态影响关系。',
+    types: DEFAULT_TYPES,
+    rels: DEFAULT_RELS,
+    tab: 'graph',
+  },
+  people: {
+    title: '人物关系',
+    subtitle: '人与人之间的汇报、协作、培养、信任与冲突。',
+    types: ['Person'],
+    rels: ['REPORT_TO', 'COLLABORATE_WITH', 'MENTOR', 'TRUST', 'CONFLICT'],
+    tab: 'graph',
+  },
+  work: {
+    title: '工作关系',
+    subtitle: '实际上谁在和谁一起干活：项目参与、协作与依赖。',
+    types: ['Person', 'Project', 'ProjectStage'],
+    rels: ['WORKS_ON', 'COLLABORATE_WITH', 'DEPENDS_ON', 'MADE_CONTRIBUTION', 'CONTRIBUTES_TO', 'EXECUTION_RESPONSIBILITY'],
+    tab: 'graph',
+  },
+  decision: {
+    title: '决策关系',
+    subtitle: '实际上谁影响决策：管理责任、组织挂名、汇报责任。',
+    types: ['Person', 'Role', 'Project'],
+    rels: ['MANAGEMENT_RESPONSIBILITY', 'OWNER', 'REPORTING_RESPONSIBILITY', 'ORG_RESPONSIBILITY'],
+    tab: 'graph',
+  },
+  reporting: {
+    title: '汇报关系',
+    subtitle: '名义上的组织：汇报线、管理与部门归属。',
+    types: ['Person', 'Role', 'Department'],
+    rels: ['REPORT_TO', 'REPORTING_RESPONSIBILITY', 'MANAGES'],
+    tab: 'graph',
+  },
+  resource: {
+    title: '资源关系',
+    subtitle: '资源到底掌握在谁手里。',
+    types: ['Person', 'Resource', 'Project'],
+    rels: ['CONTROL_RESOURCE', 'HAS_RESOURCE', 'HAS_SUB_RESOURCE', 'CONTROL_KEY_RESOURCE'],
+    tab: 'graph',
+  },
+  information: {
+    title: '信息关系',
+    subtitle: '知识与事件如何流向人员。',
+    types: ['Person', 'Knowledge', 'Event'],
+    rels: ['HAS_KNOWLEDGE', 'INVOLVED_IN', 'USES'],
+    tab: 'graph',
+  },
+  informal: {
+    title: '非正式组织',
+    subtitle: '编制之外的真实影响网络。',
+    types: ['Person', 'InformalGroup'],
+    rels: ['INFORMAL_MEMBER', 'TRUST', 'COLLABORATE_WITH'],
+    tab: 'graph',
+  },
+  conflict: {
+    title: '冲突与联盟',
+    subtitle: '冲突、信任与协作同时看，才能判断联盟。',
+    types: ['Person'],
+    rels: ['CONFLICT', 'TRUST', 'COLLABORATE_WITH'],
+    tab: 'graph',
+  },
+  influence: {
+    title: '影响力网络',
+    subtitle: '在协作网里谁更关键——不是职级，是结构位置。',
+    types: DEFAULT_TYPES,
+    rels: DEFAULT_RELS,
+    tab: 'rank',
+  },
+  community: {
+    title: '影响力网络',
+    subtitle: '按日常协作自动分出的圈子，以及谁在当桥梁。',
+    types: DEFAULT_TYPES,
+    rels: DEFAULT_RELS,
+    tab: 'community',
+  },
+  risk: {
+    title: '人员依赖',
+    subtitle: '单点、无人备份、冲突与资源独占。',
+    types: DEFAULT_TYPES,
+    rels: DEFAULT_RELS,
+    tab: 'risk',
+  },
+  promo: {
+    title: '权力分析',
+    subtitle: '领导力结构画像：影响力、信任、资源与冲突。',
+    types: DEFAULT_TYPES,
+    rels: DEFAULT_RELS,
+    tab: 'promo',
+  },
+}
+
+function presetOf(name) {
+  return GRAPH_PRESETS[name] || GRAPH_PRESETS.overview
+}
+
+export default function InfluenceGraphPanel({ members, preset = 'overview' }) {
+  const spec = presetOf(preset)
+  const [tab, setTab] = useState(spec.tab || 'graph')
   const [graph, setGraph] = useState({ nodes: [], edges: [], status: null })
   const [ranking, setRanking] = useState([])
   const [community, setCommunity] = useState(null)
@@ -87,8 +186,8 @@ export default function InfluenceGraphPanel({ members }) {
   const [selected, setSelected] = useState(null)
   const [profile, setProfile] = useState(null)
   const [promoId, setPromoId] = useState('')
-  const [types, setTypes] = useState(DEFAULT_TYPES)
-  const [rels, setRels] = useState(DEFAULT_RELS)
+  const [types, setTypes] = useState(spec.types || DEFAULT_TYPES)
+  const [rels, setRels] = useState(spec.rels || DEFAULT_RELS)
   const [extractOpen, setExtractOpen] = useState(false)
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
@@ -120,6 +219,13 @@ export default function InfluenceGraphPanel({ members }) {
       .finally(() => mountedRef.current && setLoading(false))
     return () => { mountedRef.current = false }
   }, [])
+
+  useEffect(() => {
+    const next = presetOf(preset)
+    setTab(next.tab || 'graph')
+    setTypes(next.types || DEFAULT_TYPES)
+    setRels(next.rels || DEFAULT_RELS)
+  }, [preset])
 
   const visibleNodes = useMemo(
     () => (graph.nodes || []).filter((n) => types.includes(n.type)),
@@ -235,13 +341,13 @@ export default function InfluenceGraphPanel({ members }) {
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Network size={20} className="text-brand-600" />
-            组织影响力图谱
+            {spec.title || '组织关系'}
             <span className="text-[10px] font-semibold tracking-wide text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">
               OIG
             </span>
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            人员 · 岗位 · 项目 · 资源 · 知识 · 事件的动态影响关系。重建不会自动采纳未确认的本体建议。
+            {spec.subtitle || '人员 · 岗位 · 项目 · 资源 · 知识 · 事件的动态影响关系。重建不会自动采纳未确认的本体建议。'}
           </p>
         </div>
         <div className="flex items-center gap-2">

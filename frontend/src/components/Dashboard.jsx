@@ -214,7 +214,7 @@ export default function Dashboard({ members }) {
               <div key={c.id} className="text-xs text-slate-500">🟢 {c.employee_name} · {c.onboarding_stage_label}{c.current_task ? ` · ${c.current_task.task_name}` : ''}</div>
             ))}
           </div>
-          <p className="text-[11px] text-slate-400 mt-3">完整处理请到侧栏「新人地图」。</p>
+          <p className="text-[11px] text-slate-400 mt-3">完整处理请到「团队管理 → 新人地图」。</p>
         </div>
       )}
 

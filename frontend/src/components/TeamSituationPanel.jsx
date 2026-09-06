@@ -114,8 +114,8 @@ function Bar({ value, color = 'bg-brand-500' }) {
   )
 }
 
-export default function TeamSituationPanel({ members = [], onOpenProject }) {
-  const [tab, setTab] = useState('today')
+export default function TeamSituationPanel({ members = [], onOpenProject, initialTab = 'today' }) {
+  const [tab, setTab] = useState(initialTab)
   const [payload, setPayload] = useState(null)
   const [report, setReport] = useState(null)
   const [job, setJob] = useState({ status: 'idle', progress: 0, current_step: '' })
@@ -182,6 +182,10 @@ export default function TeamSituationPanel({ members = [], onOpenProject }) {
       if (mountedRef.current) setBusy(false)
     }
   }
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   useEffect(() => {
     mountedRef.current = true

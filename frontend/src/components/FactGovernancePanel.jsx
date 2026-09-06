@@ -48,8 +48,8 @@ function day(v) {
   return String(v).replace('T', ' ').slice(0, 16)
 }
 
-export default function FactGovernancePanel() {
-  const [tab, setTab] = useState('all')
+export default function FactGovernancePanel({ initialTab = 'all' }) {
+  const [tab, setTab] = useState(initialTab)
   const [overview, setOverview] = useState(null)
   const [list, setList] = useState([])
   const [total, setTotal] = useState(0)
@@ -71,6 +71,10 @@ export default function FactGovernancePanel() {
   const [showCreate, setShowCreate] = useState(false)
   const [showExtract, setShowExtract] = useState(false)
   const [supersedeOf, setSupersedeOf] = useState(null)
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   const load = useCallback(async () => {
     setError('')

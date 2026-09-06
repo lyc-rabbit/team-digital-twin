@@ -558,8 +558,8 @@ function stripValidityLine(reason) {
   return String(reason || '').replace(/\n?有效(?:期)?[:：][^\n]*/g, '').trim()
 }
 
-export default function OntologyGovernancePanel() {
-  const [tab, setTab] = useState('analyze')
+export default function OntologyGovernancePanel({ initialTab = 'analyze' }) {
+  const [tab, setTab] = useState(initialTab)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -582,6 +582,10 @@ export default function OntologyGovernancePanel() {
   const [typeForm, setTypeForm] = useState({ description: '', parent_id: '' })
   const [schemaBundle, setSchemaBundle] = useState(null)
   const [detailNodeId, setDetailNodeId] = useState(null)
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   const load = useCallback(async (opts = {}) => {
     setError(null)
