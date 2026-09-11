@@ -5,6 +5,10 @@
 <h1 align="center">团队数字孪生</h1>
 
 <p align="center">
+  <strong>中文</strong> · <a href="./README.en.md">English</a>
+</p>
+
+<p align="center">
   <strong>同一事实 · 多视角</strong><br>
   把职场里真正发生的事，变成可追溯、可追问、可推演的组织记忆。
 </p>
